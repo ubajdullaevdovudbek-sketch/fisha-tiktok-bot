@@ -1,0 +1,14 @@
+name = "fisha-tiktok-bot"
+main = "src/index.js"
+compatibility_date = "2026-11-10"
+
+[vars]
+TIMEZONE = "Asia/Tashkent"
+POSTS_PER_DAY = "3"
+PUBLISH_START = "10:00"
+PUBLISH_END = "21:00"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "fisha-tiktok-queue"
+database_id = "REPLACE_WITH_D1_DATABASE_ID"
