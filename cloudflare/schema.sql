@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS videos (
     CHECK (status IN ('queued', 'processing', 'published', 'failed')),
   force_publish INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  claimed_at TEXT,
   published_at TEXT,
   published_local_date TEXT,
   error TEXT
