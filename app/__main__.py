@@ -29,14 +29,20 @@ async def main():
     async def start(message: Message):
         if not is_owner(message):
             return
-        await message.answer("Бот готов принимать TikTok-ссылки и видео. Команды: /queue, /status, /publish")
+        await message.answer("Бот готов принимать TikTok-ссылки и видео. Команды: /queue, /status, /publish, /retry ID")
 
     @dp.message(Command("status"))
     async def status(message: Message):
         if not is_owner(message):
             return
-        q = store.queued()
-        await message.answer(f"В очереди: {len(q)}\nПубликация: до {cfg.posts_per_day} роликов в день (настроено; расписание требует постоянного хостинга).")
+        counts = store.counts()
+        q = counts.get("queued", 0)
+        failed = counts.get("failed", 0)
+        published = counts.get("published", 0)
+        await message.answer(
+            f"В очереди: {q}\nОпубликовано: {published}\nОшибки: {failed}\n"
+            f"Лимит: до {cfg.posts_per_day} видео в день, окно {cfg.publish_start}–{cfg.publish_end} ({cfg.timezone})."
+        )
 
     @dp.message(Command("queue"))
     async def queue(message: Message):
@@ -48,6 +54,20 @@ async def main():
             return
         lines = [f"#{x['id']} — {Path(x['file_path']).name}" for x in q[:30]]
         await message.answer("Очередь:\n" + "\n".join(lines))
+
+    @dp.message(Command("retry"))
+    async def retry(message: Message):
+        if not is_owner(message):
+            return
+        parts = (message.text or "").split(maxsplit=1)
+        if len(parts) != 2 or not parts[1].isdigit():
+            await message.answer("Использование: /retry ID")
+            return
+        item_id = int(parts[1])
+        if store.requeue(item_id):
+            await message.answer(f"Видео #{item_id} возвращено в очередь.")
+        else:
+            await message.answer("Не найдено видео с ошибкой для повторной постановки.")
 
     @dp.message(Command("publish"))
     async def publish(message: Message):
