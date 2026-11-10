@@ -17,3 +17,10 @@ CREATE TABLE IF NOT EXISTS videos (
 
 CREATE INDEX IF NOT EXISTS idx_videos_queue ON videos(status, id);
 CREATE INDEX IF NOT EXISTS idx_videos_published_day ON videos(status, published_local_date);
+
+
+-- Prevent duplicate queue entries when Telegram retries webhook updates.
+CREATE TABLE IF NOT EXISTS webhook_updates (
+  update_id INTEGER PRIMARY KEY,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
