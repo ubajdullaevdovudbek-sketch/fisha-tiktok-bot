@@ -25,7 +25,7 @@ The hosted mode uses a Cloudflare Worker for the Telegram webhook and D1 for the
 
 ### Required GitHub repository secrets
 
-- `CLOUDFLARE_API_TOKEN` — Cloudflare API token with Workers Scripts Edit and D1 Edit permissions.
+- `CLOUDFLARE_API_TOKEN` — Cloudflare API token with D1 Edit at the account scope and Workers Scripts Edit (Editor) for the existing `fisha-tiktok-bot` Worker. Cloudflare requires Workers Admin to create a brand-new Worker through the API; to avoid granting that broader permission, create the Worker once in the Cloudflare dashboard first, then scope the token's Workers permission to that Worker.
 - `CLOUDFLARE_ACCOUNT_ID` — Cloudflare account ID.
 - `BOT_TOKEN` — Telegram bot token.
 - `OWNER_ID` — your numeric Telegram user ID.
@@ -34,7 +34,7 @@ The hosted mode uses a Cloudflare Worker for the Telegram webhook and D1 for the
 - `WORKER_API_SECRET` — a different random secret, 32+ characters.
 - `WORKER_API_URL` — the deployed Worker URL, stored as a GitHub Actions secret.
 
-The deploy workflow creates the D1 database if needed, applies the schema, deploys the Worker, stores Worker secrets, and registers the Telegram webhook. Run it from **Actions → deploy-cloudflare → Run workflow** after adding the secrets.
+Before deployment, open **Workers & Pages** in Cloudflare and create a Worker named exactly `fisha-tiktok-bot` (the initial starter code does not matter; deployment replaces it). This one-time dashboard step avoids granting the API token account-wide Workers Admin permission. Then create the API token with D1 Edit at the account scope and Workers Scripts Edit for this Worker. The deploy workflow creates the D1 database if needed, applies the schema, updates the existing Worker, stores Worker secrets, and registers the Telegram webhook. Run it from **Actions → deploy-cloudflare → Run workflow** after adding the secrets.
 
 After deployment, copy the Worker URL shown in the workflow log into the repository Actions secret `WORKER_API_URL` (for example, `https://fisha-tiktok-bot.<your-workers-subdomain>.workers.dev`). The scheduled publisher workflow uses this secret plus the other secrets above. The publisher validates that all four required values are present before doing any work.
 
