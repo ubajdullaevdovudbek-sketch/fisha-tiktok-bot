@@ -65,4 +65,4 @@ See `.env.example`. Never commit `.env`, bot tokens, or API keys.
 
 ## Status
 
-Initial scaffold. Hosting/deployment must be configured before unattended scheduled publishing can run.
+The application code, Cloudflare Worker, D1 schema, scheduled publisher workflow, and automated tests are in place. Deployment is not live until the required GitHub Actions secrets are added and the `deploy-cloudflare` workflow succeeds.
