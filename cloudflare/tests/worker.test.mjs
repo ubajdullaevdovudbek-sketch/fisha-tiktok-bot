@@ -59,3 +59,46 @@ test("messages from users other than the owner are ignored", async () => {
   assert.equal(response.status, 200);
   assert.equal(databaseTouched, false);
 });
+
+
+test("duplicate Telegram webhook updates are acknowledged without repeating side effects", async () => {
+  let insertCount = 0;
+  let cleanupCount = 0;
+  const env = {
+    TELEGRAM_WEBHOOK_SECRET: "webhook-secret",
+    OWNER_ID: "100",
+    DB: {
+      prepare(sql) {
+        return {
+          bind() { return this; },
+          async run() {
+            if (sql.startsWith("INSERT OR IGNORE INTO webhook_updates")) {
+              insertCount += 1;
+              return { meta: { changes: 0 } };
+            }
+            if (sql.startsWith("DELETE FROM webhook_updates")) cleanupCount += 1;
+            return { meta: { changes: 1 } };
+          },
+        };
+      },
+    },
+  };
+  const response = await worker.fetch(
+    new Request("https://example.test/telegram/webhook", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "X-Telegram-Bot-Api-Secret-Token": "webhook-secret",
+      },
+      body: JSON.stringify({
+        update_id: 123,
+        message: { chat: { id: 100 }, from: { id: 100 }, text: "/start" },
+      }),
+    }),
+    env,
+  );
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { ok: true, duplicate: true });
+  assert.equal(insertCount, 1);
+  assert.equal(cleanupCount, 0);
+});
