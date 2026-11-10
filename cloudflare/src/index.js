@@ -11,7 +11,9 @@ async function telegram(env, method, payload) {
     body: JSON.stringify(payload),
   });
   if (!response.ok) throw new Error(`Telegram API ${method}: ${response.status}`);
-  return response.json();
+  const data = await response.json();
+  if (!data.ok) throw new Error(`Telegram API ${method}: ${data.description || "request failed"}`);
+  return data;
 }
 
 async function reply(env, chatId, text) {
@@ -124,6 +126,11 @@ async function handleTelegram(request, env) {
 }
 
 async function claimJob(env) {
+  // Recover claims abandoned by a timed-out or terminated GitHub Actions runner.
+  await env.DB.prepare(
+    "UPDATE videos SET status='queued', claimed_at=NULL WHERE status='processing' AND claimed_at IS NOT NULL AND julianday(claimed_at) < julianday('now', '-20 minutes')"
+  ).run();
+
   const now = new Date();
   const timeZone = env.TIMEZONE || "Asia/Tashkent";
   const local = localParts(now, timeZone);
@@ -159,7 +166,7 @@ async function claimJob(env) {
   }
 
   const changed = await env.DB.prepare(
-    "UPDATE videos SET status='processing', error=NULL WHERE id=? AND status='queued'"
+    "UPDATE videos SET status='processing', claimed_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'), error=NULL WHERE id=? AND status='queued'"
   ).bind(candidate.id).run();
   if (!changed.meta?.changes) return null;
   return candidate;
@@ -181,7 +188,7 @@ async function api(request, env, path) {
     const local = localParts(new Date(), env.TIMEZONE || "Asia/Tashkent");
     const day = `${local.year}-${local.month}-${local.day}`;
     await env.DB.prepare(
-      "UPDATE videos SET status='published', published_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'), published_local_date=?, error=NULL WHERE id=? AND status='processing'"
+      "UPDATE videos SET status='published', claimed_at=NULL, published_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'), published_local_date=?, error=NULL WHERE id=? AND status='processing'"
     ).bind(day, Number(body.id)).run();
     return json({ ok: true });
   }
@@ -189,7 +196,7 @@ async function api(request, env, path) {
   if (path === "/api/fail" && request.method === "POST") {
     const body = await request.json();
     await env.DB.prepare(
-      "UPDATE videos SET status='failed', error=? WHERE id=? AND status='processing'"
+      "UPDATE videos SET status='failed', claimed_at=NULL, error=? WHERE id=? AND status='processing'"
     ).bind(String(body.error || "Unknown error").slice(0, 500), Number(body.id)).run();
     return json({ ok: true });
   }
