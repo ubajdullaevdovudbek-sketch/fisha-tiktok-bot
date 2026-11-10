@@ -28,7 +28,7 @@ jobs:
             fi
           done
           if (("${#missing[@]}" > 0)); then
-            printf '::error::Missing required GitHub Actions secrets: %s\n' "${missing[*]}"
+            printf '::error::Missing required GitHub Actions secrets: %s\\n' "${missing[*]}"
             exit 1
           fi
           if ! [[ "$CLOUDFLARE_ACCOUNT_ID" =~ ^[a-fA-F0-9]{32}$ ]]; then
@@ -54,42 +54,8 @@ jobs:
         with:
           node-version: "22"
 
-      - name: Create or find D1 and prepare Wrangler config
-        working-directory: cloudflare
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: |
-          set -euo pipefail
-          cp wrangler.toml.example wrangler.toml
-          API="https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/d1/database"
-          LIST="$(curl -fsS -G "$API" \
-            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-            --data-urlencode "name=fisha-tiktok-queue")"
-          echo "$LIST" | jq -e '.success == true' >/dev/null
-          DB_ID="$(echo "$LIST" | jq -r '.result[]? | select(.name == "fisha-tiktok-queue") | .uuid' | head -n1)"
-          if [ -z "$DB_ID" ]; then
-            CREATED="$(curl -fsS -X POST "$API" \
-              -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-              -H "Content-Type: application/json" \
-              --data '{"name":"fisha-tiktok-queue"}')"
-            echo "$CREATED" | jq -e '.success == true' >/dev/null
-            DB_ID="$(echo "$CREATED" | jq -r '.result.uuid')"
-          fi
-          if [ -z "$DB_ID" ] || [ "$DB_ID" = "null" ]; then
-            echo "::error::Could not obtain the D1 database ID."
-            exit 1
-          fi
-          sed -i "s/REPLACE_WITH_D1_DATABASE_ID/$DB_ID/" wrangler.toml
-          echo "D1 database is ready."
-
-      - name: Apply D1 schema
-        working-directory: cloudflare
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: npx --yes wrangler@4 d1 execute fisha-tiktok-queue --remote --file=./schema.sql
-
+      # The D1 database, schema, and binding are already provisioned.
+      # Deploy directly from the committed Wrangler config to avoid broad D1 API permissions.
       - name: Deploy Worker
         id: deploy
         working-directory: cloudflare
@@ -100,7 +66,7 @@ jobs:
           set -euo pipefail
           OUTPUT="$(npx --yes wrangler@4 deploy --config wrangler.toml 2>&1)"
           echo "$OUTPUT"
-          WORKER_URL="$(printf '%s\n' "$OUTPUT" | grep -Eo 'https://[A-Za-z0-9.-]+\.workers\.dev' | tail -n1)"
+          WORKER_URL="$(printf '%s\\n' "$OUTPUT" | grep -Eo 'https://[A-Za-z0-9.-]+\\.workers\\.dev' | tail -n1)"
           if [ -z "$WORKER_URL" ]; then
             echo "::error::Could not detect the deployed workers.dev URL."
             exit 1
@@ -130,8 +96,8 @@ jobs:
           WORKER_URL: ${{ steps.deploy.outputs.worker_url }}
         run: |
           set -euo pipefail
-          RESULT="$(curl -fsS -X POST "https://api.telegram.org/bot$BOT_TOKEN/setWebhook" \
-            --data-urlencode "url=$WORKER_URL/telegram/webhook" \
+          RESULT="$(curl -fsS -X POST "https://api.telegram.org/bot$BOT_TOKEN/setWebhook" \\
+            --data-urlencode "url=$WORKER_URL/telegram/webhook" \\
             --data-urlencode "secret_token=$TELEGRAM_WEBHOOK_SECRET")"
           echo "$RESULT" | jq -e '.ok == true' >/dev/null
           echo "Telegram webhook registered successfully."
