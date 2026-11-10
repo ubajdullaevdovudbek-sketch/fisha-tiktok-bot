@@ -1,0 +1,132 @@
+name: deploy-cloudflare
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Validate required secrets
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          OWNER_ID: ${{ secrets.OWNER_ID }}
+          TELEGRAM_WEBHOOK_SECRET: ${{ secrets.TELEGRAM_WEBHOOK_SECRET }}
+          WORKER_API_SECRET: ${{ secrets.WORKER_API_SECRET }}
+        run: |
+          set -euo pipefail
+          for name in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID BOT_TOKEN OWNER_ID TELEGRAM_WEBHOOK_SECRET WORKER_API_SECRET; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Missing required GitHub Actions secret: $name"
+              exit 1
+            fi
+          done
+          if [ "${#TELEGRAM_WEBHOOK_SECRET}" -lt 32 ] || [ "${#WORKER_API_SECRET}" -lt 32 ]; then
+            echo "::error::Both webhook secrets must be at least 32 characters."
+            exit 1
+          fi
+          if [ "$TELEGRAM_WEBHOOK_SECRET" = "$WORKER_API_SECRET" ]; then
+            echo "::error::Webhook and worker API secrets must be different."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Create or find D1 and prepare Wrangler config
+        working-directory: cloudflare
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          cp wrangler.toml.example wrangler.toml
+          API="https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/d1/database"
+          LIST="$(curl -fsS -G "$API" \
+            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            --data-urlencode "name=fisha-tiktok-queue")"
+          echo "$LIST" | jq -e '.success == true' >/dev/null
+          DB_ID="$(echo "$LIST" | jq -r '.result[]? | select(.name == "fisha-tiktok-queue") | .uuid' | head -n1)"
+          if [ -z "$DB_ID" ]; then
+            CREATED="$(curl -fsS -X POST "$API" \
+              -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+              -H "Content-Type: application/json" \
+              --data '{"name":"fisha-tiktok-queue"}')"
+            echo "$CREATED" | jq -e '.success == true' >/dev/null
+            DB_ID="$(echo "$CREATED" | jq -r '.result.uuid')"
+          fi
+          if [ -z "$DB_ID" ] || [ "$DB_ID" = "null" ]; then
+            echo "::error::Could not obtain the D1 database ID."
+            exit 1
+          fi
+          sed -i "s/REPLACE_WITH_D1_DATABASE_ID/$DB_ID/" wrangler.toml
+          echo "D1 database is ready."
+
+      - name: Apply D1 schema
+        working-directory: cloudflare
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx --yes wrangler@4 d1 execute fisha-tiktok-queue --remote --file=./schema.sql
+
+      - name: Deploy Worker
+        id: deploy
+        working-directory: cloudflare
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          OUTPUT="$(npx --yes wrangler@4 deploy --config wrangler.toml 2>&1)"
+          echo "$OUTPUT"
+          WORKER_URL="$(printf '%s\n' "$OUTPUT" | grep -Eo 'https://[A-Za-z0-9.-]+\.workers\.dev' | tail -n1)"
+          if [ -z "$WORKER_URL" ]; then
+            echo "::error::Could not detect the deployed workers.dev URL."
+            exit 1
+          fi
+          echo "worker_url=$WORKER_URL" >> "$GITHUB_OUTPUT"
+
+      - name: Store Worker secrets
+        working-directory: cloudflare
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          OWNER_ID: ${{ secrets.OWNER_ID }}
+          TELEGRAM_WEBHOOK_SECRET: ${{ secrets.TELEGRAM_WEBHOOK_SECRET }}
+          WORKER_API_SECRET: ${{ secrets.WORKER_API_SECRET }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$BOT_TOKEN" | npx --yes wrangler@4 secret put BOT_TOKEN --config wrangler.toml
+          printf '%s' "$OWNER_ID" | npx --yes wrangler@4 secret put OWNER_ID --config wrangler.toml
+          printf '%s' "$TELEGRAM_WEBHOOK_SECRET" | npx --yes wrangler@4 secret put TELEGRAM_WEBHOOK_SECRET --config wrangler.toml
+          printf '%s' "$WORKER_API_SECRET" | npx --yes wrangler@4 secret put WORKER_API_SECRET --config wrangler.toml
+
+      - name: Register Telegram webhook
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          TELEGRAM_WEBHOOK_SECRET: ${{ secrets.TELEGRAM_WEBHOOK_SECRET }}
+          WORKER_URL: ${{ steps.deploy.outputs.worker_url }}
+        run: |
+          set -euo pipefail
+          RESULT="$(curl -fsS -X POST "https://api.telegram.org/bot$BOT_TOKEN/setWebhook" \
+            --data-urlencode "url=$WORKER_URL/telegram/webhook" \
+            --data-urlencode "secret_token=$TELEGRAM_WEBHOOK_SECRET")"
+          echo "$RESULT" | jq -e '.ok == true' >/dev/null
+          echo "Telegram webhook registered successfully."
+
+      - name: Show publisher URL
+        env:
+          WORKER_URL: ${{ steps.deploy.outputs.worker_url }}
+        run: |
+          echo "::notice title=Next step::Add this URL as the GitHub Actions secret WORKER_API_URL: $WORKER_URL"
+          echo "WORKER_API_URL=$WORKER_URL"
