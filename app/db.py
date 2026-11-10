@@ -57,8 +57,23 @@ class Store:
         with self.connect() as db:
             db.execute("DELETE FROM videos WHERE id=? AND status='queued'", (item_id,))
 
-    def published_today(self) -> int:
-        # SQLite stores CURRENT_TIMESTAMP in UTC; this is a conservative daily cap.
+    def published_between(self, start_utc: str, end_utc: str) -> int:
         with self.connect() as db:
-            row = db.execute("SELECT COUNT(*) AS n FROM videos WHERE status='published' AND date(published_at)=date('now')").fetchone()
+            row = db.execute(
+                "SELECT COUNT(*) AS n FROM videos WHERE status='published' AND published_at >= ? AND published_at < ?",
+                (start_utc, end_utc),
+            ).fetchone()
             return int(row["n"])
+
+    def requeue(self, item_id: int) -> bool:
+        with self.connect() as db:
+            cur = db.execute(
+                "UPDATE videos SET status='queued', error=NULL WHERE id=? AND status='failed'",
+                (item_id,),
+            )
+            return cur.rowcount > 0
+
+    def counts(self) -> dict[str, int]:
+        with self.connect() as db:
+            rows = db.execute("SELECT status, COUNT(*) AS n FROM videos GROUP BY status").fetchall()
+            return {row["status"]: int(row["n"]) for row in rows}
