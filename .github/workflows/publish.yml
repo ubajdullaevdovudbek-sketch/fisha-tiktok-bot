@@ -1,0 +1,35 @@
+name: publish-queue
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: fisha-publish-queue
+  cancel-in-progress: false
+
+jobs:
+  publish-one:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install video tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install requests
+      - name: Process one eligible video
+        env:
+          WORKER_API_URL: ${{ secrets.WORKER_API_URL }}
+          WORKER_API_SECRET: ${{ secrets.WORKER_API_SECRET }}
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          CHANNEL_ID: ${{ secrets.CHANNEL_ID }}
+          MAX_VIDEO_MB: "48"
+        run: python scripts/process_queue.py
