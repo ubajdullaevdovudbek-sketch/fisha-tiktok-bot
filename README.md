@@ -16,8 +16,7 @@ Personal Telegram bot for collecting TikTok links or uploaded videos, reviewing 
 - TikTok metadata and comments are not always available. The most-liked comment is included only when the extractor returns trustworthy comment data.
 - Reposting requires permission to use the source video. Attribution does not replace permission.
 - Telegram Bot API and hosting providers impose file-size, runtime, and rate limits.
-- Cloudflare Workers alone cannot run `yt-dlp`/FFmpeg. This project uses a Python worker process; it needs a host that supports persistent processes and FFmpeg. A free sleeping host cannot guarantee unattended 24/7 publishing.
-
+- Cloudflare Workers alone cannot run `yt-dlp`/FFmpeg. This project uses GitHub Actions runners for the Python publisher; a free sleeping host cannot guarantee unattended 24/7 publishing.
 
 ## Free scheduled deployment (Cloudflare + GitHub Actions)
 
@@ -25,22 +24,25 @@ The hosted mode uses a Cloudflare Worker for the Telegram webhook and D1 for the
 
 ### Required GitHub repository secrets
 
-- `CLOUDFLARE_API_TOKEN` — Cloudflare API token with D1 Edit at the account scope and Workers Scripts Edit (Editor) for the existing `fisha-tiktok-bot` Worker. Cloudflare requires Workers Admin to create a brand-new Worker through the API; to avoid granting that broader permission, create the Worker once in the Cloudflare dashboard first, then scope the token's Workers permission to that Worker.
+- `CLOUDFLARE_API_TOKEN` — Cloudflare API token with D1 Edit at account scope and Workers Scripts Edit (Editor) scoped to the existing `fisha-tiktok-bot` Worker.
 - `CLOUDFLARE_ACCOUNT_ID` — Cloudflare account ID.
 - `BOT_TOKEN` — Telegram bot token.
 - `OWNER_ID` — your numeric Telegram user ID.
-- `CHANNEL_ID` — destination channel username or numeric ID.
 - `TELEGRAM_WEBHOOK_SECRET` — random secret, 32+ characters.
 - `WORKER_API_SECRET` — a different random secret, 32+ characters.
 - `WORKER_API_URL` — the deployed Worker URL, stored as a GitHub Actions secret.
 
-Before deployment, open **Workers & Pages** in Cloudflare and create a Worker named exactly `fisha-tiktok-bot` (the initial starter code does not matter; deployment replaces it). This one-time dashboard step avoids granting the API token account-wide Workers Admin permission. Then create the API token with D1 Edit at the account scope and Workers Scripts Edit for this Worker. The deploy workflow creates the D1 database if needed, applies the schema, updates the existing Worker, stores Worker secrets, and registers the Telegram webhook. Run it from **Actions → deploy-cloudflare → Run workflow** after adding the secrets.
+The destination channel is currently configured as the public username `@zadrot1705` in the publisher workflow, so a separate `CHANNEL_ID` secret is optional. You can override it by adding that secret.
 
-After deployment, copy the Worker URL shown in the workflow log into the repository Actions secret `WORKER_API_URL` (for example, `https://fisha-tiktok-bot.<your-workers-subdomain>.workers.dev`). The scheduled publisher workflow uses this secret plus the other secrets above. The publisher validates that all four required values are present before doing any work.
+### Cloudflare resources
+
+The Cloudflare account already contains the Worker `fisha-tiktok-bot` and D1 database `fisha-tiktok-queue`. The deploy workflow reuses the database if it exists, applies the schema, updates the Worker, stores Worker secrets, and registers the Telegram webhook. The API token must have D1 Edit at account scope; Cloudflare's token UI currently does not offer per-database D1 scoping. Restrict Workers Scripts Edit to the individual Worker using **Specified Workers** → `fisha-tiktok-bot` → **Editor**. Do not grant Workers Admin, DNS, Billing, or account-management permissions.
+
+Run **Actions → deploy-cloudflare → Run workflow** after the required secrets are configured. After deployment, verify the Worker health endpoint and Telegram webhook. The deploy workflow reports the Worker URL; save it as the GitHub Actions secret `WORKER_API_URL`.
 
 ### Telegram channel permissions
 
-Add the bot to the destination channel as an administrator with permission to post messages. Keep the repository public so standard GitHub-hosted runner usage remains eligible for the free public-repository allowance. Do not commit tokens or secrets.
+Add `@Clougptbot` to `@zadrot1705` as an administrator with permission to post messages. Keep the repository public so standard GitHub-hosted runner usage remains eligible for the free public-repository allowance. Do not commit tokens or secrets.
 
 ### Limits
 
