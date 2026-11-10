@@ -28,7 +28,7 @@ jobs:
             fi
           done
           if (("${#missing[@]}" > 0)); then
-            printf '::error::Missing required GitHub Actions secrets: %s\\n' "${missing[*]}"
+            printf '::error::Missing required GitHub Actions secrets: %s\n' "${missing[*]}"
             exit 1
           fi
           if ! [[ "$CLOUDFLARE_ACCOUNT_ID" =~ ^[a-fA-F0-9]{32}$ ]]; then
