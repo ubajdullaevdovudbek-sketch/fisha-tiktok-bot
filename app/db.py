@@ -56,3 +56,9 @@ class Store:
     def remove(self, item_id: int):
         with self.connect() as db:
             db.execute("DELETE FROM videos WHERE id=? AND status='queued'", (item_id,))
+
+    def published_today(self) -> int:
+        # SQLite stores CURRENT_TIMESTAMP in UTC; this is a conservative daily cap.
+        with self.connect() as db:
+            row = db.execute("SELECT COUNT(*) AS n FROM videos WHERE status='published' AND date(published_at)=date('now')").fetchone()
+            return int(row["n"])
