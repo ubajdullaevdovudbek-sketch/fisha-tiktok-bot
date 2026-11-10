@@ -1,4 +1,4 @@
-from datetime import datetime, time, timedelta
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from aiogram import Bot
@@ -8,31 +8,36 @@ from .db import Store
 from .publisher import publish_one
 
 
-def next_publish_time(cfg: Config, tz: ZoneInfo) -> datetime:
+def in_publish_window(cfg: Config, tz: ZoneInfo) -> bool:
     now = datetime.now(tz)
-    start_h, start_m = map(int, cfg.publish_start.split(":"))
-    end_h, end_m = map(int, cfg.publish_end.split(":"))
-    start = now.replace(hour=start_h, minute=start_m, second=0, microsecond=0)
-    end = now.replace(hour=end_h, minute=end_m, second=0, microsecond=0)
+    sh, sm = map(int, cfg.publish_start.split(":"))
+    eh, em = map(int, cfg.publish_end.split(":"))
+    start = now.replace(hour=sh, minute=sm, second=0, microsecond=0)
+    end = now.replace(hour=eh, minute=em, second=0, microsecond=0)
     if end <= start:
-        end += timedelta(days=1)
-    if now < start:
-        return start
-    if now <= end:
-        return now + timedelta(minutes=1)
-    return start + timedelta(days=1)
+        return now >= start or now <= end
+    return start <= now <= end
 
 
 async def publish_due(bot: Bot, store: Store, cfg: Config):
-    queue = store.queued()
-    if not queue:
+    tz = ZoneInfo(cfg.timezone)
+    if not in_publish_window(cfg, tz):
         return
-    # Publish at most one item per scheduler tick; APScheduler runs every 20 minutes.
-    await publish_one(bot, store, cfg.channel_id, queue[0])
+    if store.published_today() >= cfg.posts_per_day:
+        return
+    queue = store.queued()
+    if queue:
+        await publish_one(bot, store, cfg.channel_id, queue[0])
 
 
 def build_scheduler(bot: Bot, store: Store, cfg: Config) -> AsyncIOScheduler:
     tz = ZoneInfo(cfg.timezone)
+    start_h, start_m = map(int, cfg.publish_start.split(":"))
+    end_h, end_m = map(int, cfg.publish_end.split(":"))
+    window_minutes = (end_h * 60 + end_m) - (start_h * 60 + start_m)
+    if window_minutes <= 0:
+        window_minutes += 24 * 60
+    interval = max(20, window_minutes // cfg.posts_per_day)
     scheduler = AsyncIOScheduler(timezone=tz)
-    scheduler.add_job(publish_due, "interval", minutes=20, args=[bot, store, cfg], id="publish_queue", max_instances=1, coalesce=True)
+    scheduler.add_job(publish_due, "interval", minutes=interval, args=[bot, store, cfg], id="publish_queue", max_instances=1, coalesce=True, next_run_time=datetime.now(tz) + timedelta(minutes=1))
     return scheduler
