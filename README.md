@@ -45,6 +45,7 @@ Add the bot to the destination channel as an administrator with permission to po
 ### Limits
 
 - GitHub scheduled runs are best-effort and may be delayed.
+- Jobs claimed by a runner that disappears are returned to the queue after 20 minutes.
 - Telegram Bot API upload size limits apply; the publisher currently caps source videos at 48 MB.
 - TikTok may block downloads or omit author metadata. The bot never fabricates the most-liked comment; currently it does not scrape comments.
 - Repost only videos you have permission to use.
