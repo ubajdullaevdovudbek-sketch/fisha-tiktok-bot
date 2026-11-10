@@ -51,6 +51,18 @@ async function handleTelegram(request, env) {
   const ownerId = String(env.OWNER_ID || "");
   if (String(message.from.id) !== ownerId) return json({ ok: true });
 
+  // Telegram retries webhook deliveries. Record update IDs before side effects
+  // so the same message cannot be queued or answered twice.
+  if (Number.isSafeInteger(update.update_id)) {
+    const seen = await env.DB.prepare(
+      "INSERT OR IGNORE INTO webhook_updates(update_id) VALUES(?)"
+    ).bind(update.update_id).run();
+    if (!seen.meta?.changes) return json({ ok: true, duplicate: true });
+    await env.DB.prepare(
+      "DELETE FROM webhook_updates WHERE created_at < strftime('%Y-%m-%dT%H:%M:%fZ','now','-30 days')"
+    ).run();
+  }
+
   const chatId = message.chat.id;
   const text = String(message.text || "").trim();
 
