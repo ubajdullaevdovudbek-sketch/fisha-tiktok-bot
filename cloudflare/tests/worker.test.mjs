@@ -102,3 +102,71 @@ test("duplicate Telegram webhook updates are acknowledged without repeating side
   assert.equal(insertCount, 1);
   assert.equal(cleanupCount, 0);
 });
+
+test("completion endpoint rejects invalid IDs and reports missing processing jobs", async () => {
+  let writes = 0;
+  const env = {
+    WORKER_API_SECRET: "worker-secret",
+    TIMEZONE: "Asia/Tashkent",
+    DB: {
+      prepare() {
+        return {
+          bind() { return this; },
+          async run() { writes += 1; return { meta: { changes: 0 } }; },
+        };
+      },
+    },
+  };
+  const invalid = await worker.fetch(
+    new Request("https://example.test/api/complete", {
+      method: "POST",
+      headers: { Authorization: "Bearer worker-secret", "content-type": "application/json" },
+      body: JSON.stringify({ id: "not-a-number" }),
+    }),
+    env,
+  );
+  assert.equal(invalid.status, 400);
+  assert.equal(writes, 0);
+
+  const missing = await worker.fetch(
+    new Request("https://example.test/api/complete", {
+      method: "POST",
+      headers: { Authorization: "Bearer worker-secret", "content-type": "application/json" },
+      body: JSON.stringify({ id: 42 }),
+    }),
+    env,
+  );
+  assert.equal(missing.status, 409);
+  assert.deepEqual(await missing.json(), {
+    ok: false,
+    error: "Video is not currently processing",
+  });
+  assert.equal(writes, 1);
+});
+
+test("failure endpoint does not report success when a job was not updated", async () => {
+  const env = {
+    WORKER_API_SECRET: "worker-secret",
+    DB: {
+      prepare() {
+        return {
+          bind() { return this; },
+          async run() { return { meta: { changes: 0 } }; },
+        };
+      },
+    },
+  };
+  const response = await worker.fetch(
+    new Request("https://example.test/api/fail", {
+      method: "POST",
+      headers: { Authorization: "Bearer worker-secret", "content-type": "application/json" },
+      body: JSON.stringify({ id: 42, error: "test" }),
+    }),
+    env,
+  );
+  assert.equal(response.status, 409);
+  assert.deepEqual(await response.json(), {
+    ok: false,
+    error: "Video is not currently processing",
+  });
+});
