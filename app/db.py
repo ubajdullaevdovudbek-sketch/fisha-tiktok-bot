@@ -1,0 +1,58 @@
+import sqlite3
+from pathlib import Path
+from typing import Any
+
+
+class Store:
+    def __init__(self, path: Path):
+        self.path = path
+        self.init()
+
+    def connect(self):
+        db = sqlite3.connect(self.path)
+        db.row_factory = sqlite3.Row
+        return db
+
+    def init(self):
+        with self.connect() as db:
+            db.execute("""CREATE TABLE IF NOT EXISTS videos (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                source_url TEXT,
+                file_path TEXT NOT NULL,
+                source_author TEXT,
+                source_caption TEXT,
+                top_comment TEXT,
+                status TEXT NOT NULL DEFAULT 'queued',
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                published_at TEXT,
+                error TEXT
+            )""")
+
+    def add(self, file_path: str, source_url: str = "", author: str = "", caption: str = "", comment: str = "") -> int:
+        with self.connect() as db:
+            cur = db.execute(
+                "INSERT INTO videos(source_url,file_path,source_author,source_caption,top_comment) VALUES(?,?,?,?,?)",
+                (source_url, file_path, author, caption, comment),
+            )
+            return int(cur.lastrowid)
+
+    def queued(self) -> list[dict[str, Any]]:
+        with self.connect() as db:
+            rows = db.execute("SELECT * FROM videos WHERE status='queued' ORDER BY id").fetchall()
+            return [dict(row) for row in rows]
+
+    def get(self, item_id: int):
+        with self.connect() as db:
+            row = db.execute("SELECT * FROM videos WHERE id=?", (item_id,)).fetchone()
+            return dict(row) if row else None
+
+    def set_status(self, item_id: int, status: str, error: str | None = None):
+        with self.connect() as db:
+            if status == "published":
+                db.execute("UPDATE videos SET status=?, published_at=CURRENT_TIMESTAMP, error=NULL WHERE id=?", (status, item_id))
+            else:
+                db.execute("UPDATE videos SET status=?, error=? WHERE id=?", (status, error, item_id))
+
+    def remove(self, item_id: int):
+        with self.connect() as db:
+            db.execute("DELETE FROM videos WHERE id=? AND status='queued'", (item_id,))
