@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, time, timezone
 from zoneinfo import ZoneInfo
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from aiogram import Bot
@@ -23,7 +23,12 @@ async def publish_due(bot: Bot, store: Store, cfg: Config):
     tz = ZoneInfo(cfg.timezone)
     if not in_publish_window(cfg, tz):
         return
-    if store.published_today() >= cfg.posts_per_day:
+    local_now = datetime.now(tz)
+    local_start = datetime.combine(local_now.date(), time.min, tzinfo=tz)
+    local_end = local_start + timedelta(days=1)
+    start_utc = local_start.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    end_utc = local_end.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    if store.published_between(start_utc, end_utc) >= cfg.posts_per_day:
         return
     queue = store.queued()
     if queue:
