@@ -32,10 +32,11 @@ The hosted mode uses a Cloudflare Worker for the Telegram webhook and D1 for the
 - `CHANNEL_ID` — destination channel username or numeric ID.
 - `TELEGRAM_WEBHOOK_SECRET` — random secret, 32+ characters.
 - `WORKER_API_SECRET` — a different random secret, 32+ characters.
+- `WORKER_API_URL` — the deployed Worker URL, stored as a GitHub Actions secret.
 
 The deploy workflow creates the D1 database if needed, applies the schema, deploys the Worker, stores Worker secrets, and registers the Telegram webhook. Run it from **Actions → deploy-cloudflare → Run workflow** after adding the secrets.
 
-After deployment, copy the Worker URL shown in the workflow log into the repository Actions variable `WORKER_API_URL` (for example, `https://fisha-tiktok-bot.<your-workers-subdomain>.workers.dev`). The scheduled publisher workflow uses this variable plus the secrets above.
+After deployment, copy the Worker URL shown in the workflow log into the repository Actions secret `WORKER_API_URL` (for example, `https://fisha-tiktok-bot.<your-workers-subdomain>.workers.dev`). The scheduled publisher workflow uses this secret plus the other secrets above. The publisher validates that all four required values are present before doing any work.
 
 ### Telegram channel permissions
 
