@@ -199,17 +199,23 @@ async function api(request, env, path) {
     const body = await request.json();
     const local = localParts(new Date(), env.TIMEZONE || "Asia/Tashkent");
     const day = `${local.year}-${local.month}-${local.day}`;
-    await env.DB.prepare(
+    const id = Number(body.id);
+    if (!Number.isSafeInteger(id) || id < 1) return json({ ok: false, error: "Invalid video ID" }, 400);
+    const result = await env.DB.prepare(
       "UPDATE videos SET status='published', claimed_at=NULL, published_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'), published_local_date=?, error=NULL WHERE id=? AND status='processing'"
-    ).bind(day, Number(body.id)).run();
+    ).bind(day, id).run();
+    if (!result.meta?.changes) return json({ ok: false, error: "Video is not currently processing" }, 409);
     return json({ ok: true });
   }
 
   if (path === "/api/fail" && request.method === "POST") {
     const body = await request.json();
-    await env.DB.prepare(
+    const id = Number(body.id);
+    if (!Number.isSafeInteger(id) || id < 1) return json({ ok: false, error: "Invalid video ID" }, 400);
+    const result = await env.DB.prepare(
       "UPDATE videos SET status='failed', claimed_at=NULL, error=? WHERE id=? AND status='processing'"
-    ).bind(String(body.error || "Unknown error").slice(0, 500), Number(body.id)).run();
+    ).bind(String(body.error || "Unknown error").slice(0, 500), id).run();
+    if (!result.meta?.changes) return json({ ok: false, error: "Video is not currently processing" }, 409);
     return json({ ok: true });
   }
 
