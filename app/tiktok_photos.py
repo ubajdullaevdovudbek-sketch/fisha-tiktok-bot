@@ -10,7 +10,7 @@ PHOTO_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".avif"}
 
 def resolve_tiktok_url(url: str) -> str:
     """Resolve TikTok short links without downloading the response body."""
-    if urlparse(url).path.startswith("/photo/") or urlparse(url).path.startswith("/video/"):
+    if "/photo/" in urlparse(url).path or "/video/" in urlparse(url).path:
         return url
     if urlparse(url).hostname not in {"vt.tiktok.com", "vm.tiktok.com", "tiktok.com", "www.tiktok.com"}:
         return url
@@ -23,7 +23,7 @@ def resolve_tiktok_url(url: str) -> str:
 
 
 def is_tiktok_photo_url(url: str) -> bool:
-    return urlparse(url).path.startswith("/photo/")
+    return "/photo/" in urlparse(url).path
 
 
 def download_tiktok_photos(url: str, target_dir: Path) -> list[Path]:
