@@ -83,5 +83,39 @@ class TelegramPhotoPublishTests(unittest.TestCase):
                 publish_photos(self.make_photos(tmp, 2), "")
 
 
+    @patch("scripts.process_queue.requests.post", return_value=FakeResponse())
+    def test_eleven_photos_use_album_of_ten_then_single_photo(self, post):
+        with tempfile.TemporaryDirectory() as tmp:
+            photos = self.make_photos(tmp, 11)
+            publish_photos(photos, "caption")
+        self.assertEqual(post.call_count, 2)
+        first_url = post.call_args_list[0].args[0]
+        second_url = post.call_args_list[1].args[0]
+        self.assertTrue(first_url.endswith("/sendMediaGroup"))
+        self.assertTrue(second_url.endswith("/sendPhoto"))
+        first_media = json.loads(post.call_args_list[0].kwargs["data"]["media"])
+        self.assertEqual(len(first_media), 10)
+        self.assertEqual(first_media[0]["caption"], "caption")
+        self.assertEqual(post.call_args_list[1].kwargs["data"]["caption"], "")
+
+    @patch("scripts.process_queue.requests.post", return_value=FakeResponse())
+    def test_photo_batches_preserve_filename_order(self, post):
+        with tempfile.TemporaryDirectory() as tmp:
+            photos = self.make_photos(tmp, 12)
+            publish_photos(photos, "caption")
+        uploaded = []
+        for call in post.call_args_list:
+            if call.args[0].endswith("/sendMediaGroup"):
+                media = json.loads(call.kwargs["data"]["media"])
+                uploaded.extend(item["media"] for item in media)
+            else:
+                uploaded.append("single-photo")
+        self.assertEqual(len(uploaded), 12)
+        first = json.loads(post.call_args_list[0].kwargs["data"]["media"])
+        second = json.loads(post.call_args_list[1].kwargs["data"]["media"])
+        self.assertEqual([item["media"] for item in first], [f"attach://photo{i}" for i in range(10)])
+        self.assertEqual([item["media"] for item in second], ["attach://photo0", "attach://photo1"])
+
+
 if __name__ == "__main__":
     unittest.main()
