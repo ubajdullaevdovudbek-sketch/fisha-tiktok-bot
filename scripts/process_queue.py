@@ -1,6 +1,4 @@
-import json
 import os
-import subprocess
 import tempfile
 from pathlib import Path
 from urllib.parse import urljoin
@@ -14,6 +12,7 @@ API_SECRET = os.environ["WORKER_API_SECRET"]
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 CHANNEL_ID = os.environ["CHANNEL_ID"]
 MAX_VIDEO_MB = int(os.getenv("MAX_VIDEO_MB", "48"))
+MAX_JOBS_PER_RUN = max(1, min(10, int(os.getenv("MAX_JOBS_PER_RUN", "5"))))
 
 
 def api(path: str, payload=None):
@@ -77,7 +76,6 @@ def make_caption(caption: str, author: str) -> str:
     if caption.strip():
         parts.append(caption.strip())
     if author.strip():
-        # Plain text only: no Telegram mention link is created.
         parts.append(f"Автор оригинала: {author.strip()}")
     parts.append("Источник: TikTok")
     return "\n\n".join(parts)[:1024]
@@ -99,11 +97,11 @@ def publish(path: Path, caption: str):
         raise RuntimeError(result.get("description", "Telegram sendVideo failed"))
 
 
-def process_one():
+def process_one() -> bool:
     job_response = api("/api/claim")
     if not job_response:
-        print("No eligible queued video.")
-        return
+        return False
+
     job = job_response["job"]
     job_id = int(job["id"])
 
@@ -127,6 +125,7 @@ def process_one():
 
         api("/api/complete", {"id": job_id})
         print(f"Published video #{job_id}")
+        return True
     except Exception as exc:
         try:
             api("/api/fail", {"id": job_id, "error": str(exc)[:500]})
@@ -135,5 +134,14 @@ def process_one():
         raise
 
 
+def main():
+    processed = 0
+    while processed < MAX_JOBS_PER_RUN:
+        if not process_one():
+            break
+        processed += 1
+    print(f"Run finished. Successfully processed {processed} job(s); limit={MAX_JOBS_PER_RUN}.")
+
+
 if __name__ == "__main__":
-    process_one()
+    main()
