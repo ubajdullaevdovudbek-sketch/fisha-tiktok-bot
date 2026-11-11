@@ -46,3 +46,13 @@ Updated: 2026-11-11
 3. Keep audio extraction as an independent optional stage after video/photo reliability.
 4. Review all changes on feature branch; request explicit approval before PR/merge/deploy/live test.
 5. Re-read this checkpoint and inspect current branch head before resuming work in a new chat.
+
+
+## Follow-up work on 2026-11-11
+- Extracted bounded queue loop into `app/queue_runner.py` so it can be tested without network access.
+- Added `tests/test_queue_runner.py` covering batch limit, empty queue, upper clamp (10), and propagation of job errors.
+- Updated `scripts/process_queue.py` to call the tested helper.
+- Ran the four helper unit tests in an isolated local environment: all passed. This is not a full repository CI run and does not verify Telegram/Cloudflare integration.
+- Current latest feature branch commit: `a5bf5fa3f776b2d101030f2d420ba4025565a9e5`.
+- Photo-mode research: official yt-dlp tracker documents TikTok photo-mode as unsupported/not planned in its core scope. Evaluate a free separate image downloader (e.g. gallery-dl) or carefully isolated TikTok image extraction; do not assume yt-dlp will return all slide images.
+- User priority order remains: video speed/reliability first, photo carousels second, separate audio third.
