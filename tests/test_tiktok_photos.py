@@ -25,9 +25,13 @@ class TikTokPhotoTests(unittest.TestCase):
             return Result()
 
         with tempfile.TemporaryDirectory() as tmp:
-            with patch("app.tiktok_photos.subprocess.run", side_effect=fake_run):
+            with patch("app.tiktok_photos.subprocess.run", side_effect=fake_run) as runner:
                 photos = download_tiktok_photos("https://www.tiktok.com/@u/photo/1", Path(tmp))
             self.assertEqual([p.name for p in photos], ["001.jpg", "002.jpg"])
+            command = runner.call_args.args[0]
+            self.assertIn("{num:03}.{extension}", command)
+            self.assertIn("extractor.tiktok.photos=true", command)
+            self.assertIn("extractor.tiktok.audio=false", command)
 
     def test_raises_when_gallery_dl_fails(self):
         class Result:
