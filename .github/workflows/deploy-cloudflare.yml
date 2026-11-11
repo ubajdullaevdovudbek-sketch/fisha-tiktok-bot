@@ -107,9 +107,11 @@ jobs:
           echo "$RESULT" | jq -e '.ok == true' >/dev/null
           echo "Telegram webhook registered successfully."
 
-      - name: Show publisher URL
+      - name: Verify deployed Worker
         env:
           WORKER_URL: ${{ steps.deploy.outputs.worker_url }}
         run: |
-          echo "::notice title=Next step::Add this URL as the GitHub Actions secret WORKER_API_URL: $WORKER_URL"
-          echo "WORKER_API_URL=$WORKER_URL"
+          set -euo pipefail
+          curl -fsS "$WORKER_URL/health" | jq -e '.ok == true' >/dev/null
+          echo "Worker health check passed: $WORKER_URL"
+          echo "The publisher resolves this URL automatically from the Cloudflare account subdomain."
