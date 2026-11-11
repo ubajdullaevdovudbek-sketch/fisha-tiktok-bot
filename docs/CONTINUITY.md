@@ -15,7 +15,7 @@ Updated: 2026-11-11
 1. Faster and reliable video publishing.
 2. TikTok Photo Mode: download all images in order and send as Telegram album.
 3. Separate audio extraction/publication is desirable but lowest priority.
-- Music work must not delay regular video publishing.
+- Audio work must not delay regular video publishing; it runs only after the video has been sent.
 - Prefer free solutions.
 
 ## Current implementation on feature branch
@@ -27,7 +27,8 @@ Updated: 2026-11-11
 - Added `app/tiktok_photos.py`: resolves TikTok short URLs; detects canonical `/photo/` paths; calls gallery-dl with TikTok audio and video downloads disabled; sorts downloaded images by slide number.
 - Queue worker routes canonical Photo Mode posts to image downloader; sends image batches via Telegram `sendMediaGroup` (max 10 per album) and single images via `sendPhoto`. Captions are attached only to the first image.
 - Regular video jobs still use existing yt-dlp MP4 download and Telegram `sendVideo` flow.
-- Separate audio extraction is not implemented.
+- Video and Telegram-uploaded MP4 jobs now publish the video first, then best-effort extract the full audio track to a 128 kbps MP3 with FFmpeg and send it via Telegram `sendAudio`.
+- MP3 extraction/upload failures are logged and do not fail or retry an already-published video job. Photo Mode remains image-only.
 
 ## Tests and verification
 - Ran 8 isolated unit tests locally for batch runner and photo downloader using mocked subprocess; all passed.
@@ -40,6 +41,7 @@ Updated: 2026-11-11
 
 ## Known gaps / next steps
 1. Run GitHub Actions tests on this feature branch; ensure the tests workflow is configured to trigger for this branch.
+2. Verify the new audio extraction tests pass; FFmpeg is installed in the publish workflow already.
 2. Inspect actual gallery-dl behavior against a public TikTok Photo Mode URL (without publishing to Telegram) when safe validation is possible.
 3. Add mocked tests for Telegram album payload construction and multi-album splitting.
 4. Keep video fast path first; don't add music extraction until video and photo flows are stable.
