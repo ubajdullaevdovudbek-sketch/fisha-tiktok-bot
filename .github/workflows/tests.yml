@@ -1,7 +1,7 @@
 name: tests
 on:
   push:
-    branches: [main]
+    branches: [main, feature/fast-photo-carousel-no-daily-cap]
   pull_request:
     branches: [main]
 jobs:
