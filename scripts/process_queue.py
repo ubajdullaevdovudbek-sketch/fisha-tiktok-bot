@@ -6,6 +6,8 @@ from urllib.parse import urljoin
 import requests
 import yt_dlp
 
+from app.queue_runner import process_batch
+
 
 API_URL = os.environ["WORKER_API_URL"].rstrip("/")
 API_SECRET = os.environ["WORKER_API_SECRET"]
@@ -135,11 +137,7 @@ def process_one() -> bool:
 
 
 def main():
-    processed = 0
-    while processed < MAX_JOBS_PER_RUN:
-        if not process_one():
-            break
-        processed += 1
+    processed = process_batch(process_one, MAX_JOBS_PER_RUN)
     print(f"Run finished. Successfully processed {processed} job(s); limit={MAX_JOBS_PER_RUN}.")
 
 
