@@ -190,6 +190,39 @@ async function api(request, env, path) {
     return new Response("Unauthorized", { status: 401 });
   }
 
+  // Read-only control endpoints. They share the existing worker API secret
+  // and never mutate queue rows or trigger publishing.
+  if (path === "/api/control/status" && request.method === "GET") {
+    const result = await env.DB.prepare(
+      "SELECT status, COUNT(*) AS n FROM videos GROUP BY status"
+    ).all();
+    const counts = Object.fromEntries((result.results || []).map(row => [row.status, Number(row.n)]));
+    const local = localParts(new Date(), env.TIMEZONE || "Asia/Tashkent");
+    const today = `${local.year}-${local.month}-${local.day}`;
+    const publishedToday = await env.DB.prepare(
+      "SELECT COUNT(*) AS n FROM videos WHERE status='published' AND published_local_date=?"
+    ).bind(today).first();
+    return json({
+      ok: true,
+      timezone: env.TIMEZONE || "Asia/Tashkent",
+      schedule: { start: env.PUBLISH_START || "10:00", end: env.PUBLISH_END || "21:00", daily_limit: Number(env.POSTS_PER_DAY || 3) },
+      counts: {
+        queued: counts.queued || 0,
+        processing: counts.processing || 0,
+        published: counts.published || 0,
+        failed: counts.failed || 0,
+        published_today: Number(publishedToday?.n || 0)
+      }
+    });
+  }
+
+  if (path === "/api/control/queue" && request.method === "GET") {
+    const result = await env.DB.prepare(
+      "SELECT id, kind, status, created_at, published_at, error FROM videos WHERE status IN ('queued','processing','failed') ORDER BY id DESC LIMIT 30"
+    ).all();
+    return json({ ok: true, items: result.results || [] });
+  }
+
   if (path === "/api/claim" && request.method === "POST") {
     const job = await claimJob(env);
     return job ? json({ job }) : new Response(null, { status: 204 });
