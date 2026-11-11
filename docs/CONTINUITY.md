@@ -31,7 +31,8 @@ Updated: 2026-11-11
 - MP3 extraction/upload failures are logged and do not fail or retry an already-published video job. Photo Mode remains image-only.
 
 ## Tests and verification
-- Ran 8 isolated unit tests locally for batch runner and photo downloader using mocked subprocess; all passed.
+- Existing isolated tests: 8 tests for batch runner and photo downloader; audio helper tests: 2 tests passed separately.
+- Added 5 mocked Telegram photo-publishing tests covering one photo, 2-photo album, splitting 12 photos into groups of 10 + 2, oversized-photo rejection, and Telegram API error handling. These new tests are committed but have not yet been executed in GitHub Actions.
 - This is not a full repository CI run.
 - No real TikTok link download has been validated in this environment.
 - No Telegram API call, live queue processing, channel post, Cloudflare deployment, or merge has been performed.
