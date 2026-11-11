@@ -26,6 +26,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
+      PYTHONPATH: ${{ github.workspace }}
       TIKTOK_PHOTO_URL: ${{ inputs.tiktok_photo_url || 'https://vt.tiktok.com/ZSpmmFvfy/' }}
     steps:
       - uses: actions/checkout@v4
