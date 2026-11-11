@@ -5,7 +5,7 @@ Updated: 2026-11-11
 ## Repository and boundaries
 - Repository: `ubajdullaevdovudbek-sketch/fisha-tiktok-bot`
 - Working branch: `feature/fast-photo-carousel-no-daily-cap`
-- Current feature branch head: `9367543de537681776b416a2be3a899af3223478`
+- Read the live branch head from GitHub before resuming; this checkpoint is updated by feature commits and must not be treated as a substitute for the current ref.
 - Known main baseline before this work: `f07a9ecfc08cf76f0b64079893677a7bc9360917`
 - `main` has not been changed. Do not touch `safety/manual-approval`.
 - User approved edits on this feature branch only. No PR, merge, deploy, Cloudflare configuration/secret changes, or live channel tests without separate explicit approval.
