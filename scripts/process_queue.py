@@ -1,5 +1,7 @@
+import mimetypes
 import os
 import tempfile
+from contextlib import ExitStack
 from pathlib import Path
 from urllib.parse import urljoin
 
@@ -7,6 +9,7 @@ import requests
 import yt_dlp
 
 from app.queue_runner import process_batch
+from app.tiktok_photos import download_tiktok_photos, is_tiktok_photo_url, resolve_tiktok_url
 
 
 API_URL = os.environ["WORKER_API_URL"].rstrip("/")
@@ -99,6 +102,49 @@ def publish(path: Path, caption: str):
         raise RuntimeError(result.get("description", "Telegram sendVideo failed"))
 
 
+def publish_photos(paths: list[Path], caption: str):
+    if not paths:
+        raise RuntimeError("No photos to publish")
+    for path in paths:
+        if path.stat().st_size > 10 * 1024 * 1024:
+            raise RuntimeError(f"Photo exceeds Telegram's 10 MB upload limit: {path.name}")
+
+    # Telegram media groups contain at most 10 items. A single image is sent
+    # with sendPhoto because sendMediaGroup requires at least two items.
+    for offset in range(0, len(paths), 10):
+        batch = paths[offset:offset + 10]
+        method = "sendPhoto" if len(batch) == 1 else "sendMediaGroup"
+        with ExitStack() as stack:
+            handles = [stack.enter_context(path.open("rb")) for path in batch]
+            if method == "sendPhoto":
+                response = requests.post(
+                    f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto",
+                    data={"chat_id": CHANNEL_ID, "caption": caption if offset == 0 else ""},
+                    files={"photo": (batch[0].name, handles[0], mimetypes.guess_type(batch[0].name)[0] or "application/octet-stream")},
+                    timeout=300,
+                )
+            else:
+                media = []
+                files = []
+                for index, (path, handle) in enumerate(zip(batch, handles)):
+                    attach_name = f"photo{index}"
+                    item = {"type": "photo", "media": f"attach://{attach_name}"}
+                    if offset == 0 and index == 0 and caption:
+                        item["caption"] = caption
+                    media.append(item)
+                    files.append((attach_name, (path.name, handle, mimetypes.guess_type(path.name)[0] or "application/octet-stream")))
+                response = requests.post(
+                    f"https://api.telegram.org/bot{BOT_TOKEN}/sendMediaGroup",
+                    data={"chat_id": CHANNEL_ID, "media": __import__("json").dumps(media, ensure_ascii=False)},
+                    files=files,
+                    timeout=300,
+                )
+        response.raise_for_status()
+        result = response.json()
+        if not result.get("ok"):
+            raise RuntimeError(result.get("description", f"Telegram API {method} failed"))
+
+
 def process_one() -> bool:
     job_response = api("/api/claim")
     if not job_response:
@@ -114,19 +160,33 @@ def process_one() -> bool:
             caption = str(job.get("source_caption") or "")
 
             if job["kind"] == "tiktok_url":
-                path, metadata = download_tiktok(job["source_url"], folder)
-                author = str(metadata.get("uploader") or metadata.get("creator") or author)
-                caption = caption or str(metadata.get("description") or metadata.get("title") or "")
+                source_url = job["source_url"]
+                try:
+                    resolved_url = resolve_tiktok_url(source_url)
+                except requests.RequestException as exc:
+                    # Never let short-link resolution block the primary video
+                    # path: yt-dlp can resolve TikTok short links itself.
+                    print(f"Short-link preflight failed; using yt-dlp directly: {exc}")
+                    resolved_url = source_url
+
+                if is_tiktok_photo_url(resolved_url):
+                    photos = download_tiktok_photos(resolved_url, folder)
+                    publish_photos(photos, make_caption(caption, author))
+                    print(f"Published TikTok photo carousel #{job_id} ({len(photos)} images)")
+                else:
+                    path, metadata = download_tiktok(resolved_url, folder)
+                    author = str(metadata.get("uploader") or metadata.get("creator") or author)
+                    caption = caption or str(metadata.get("description") or metadata.get("title") or "")
+                    publish(path, make_caption(caption, author))
+                    print(f"Published video #{job_id}")
             elif job["kind"] == "telegram_file":
                 path = folder / f"telegram_{job_id}.mp4"
                 telegram_file(job["telegram_file_id"], path)
+                publish(path, make_caption(caption, author))
             else:
                 raise RuntimeError(f"Unsupported job type: {job['kind']}")
 
-            publish(path, make_caption(caption, author))
-
         api("/api/complete", {"id": job_id})
-        print(f"Published video #{job_id}")
         return True
     except Exception as exc:
         try:
