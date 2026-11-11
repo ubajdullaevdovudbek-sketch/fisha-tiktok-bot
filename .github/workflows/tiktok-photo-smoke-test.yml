@@ -1,0 +1,37 @@
+name: TikTok Photo Mode smoke test
+
+on:
+  workflow_dispatch:
+    inputs:
+      tiktok_photo_url:
+        description: Public TikTok Photo Mode URL (only downloads files; does not publish)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  download-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/fast-photo-carousel-no-daily-cap
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install free open-source downloader
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests gallery-dl
+      - name: Download and verify Photo Mode images locally
+        run: python scripts/smoke_test_tiktok_photos.py "${{ inputs.tiktok_photo_url }}"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tiktok-photo-smoke-test
+          path: smoke-test-output/
+          if-no-files-found: ignore
+          retention-days: 1
