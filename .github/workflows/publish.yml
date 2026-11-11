@@ -20,11 +20,13 @@ jobs:
         env:
           WORKER_API_SECRET: ${{ secrets.WORKER_API_SECRET }}
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CHANNEL_ID: ${{ secrets.CHANNEL_ID || '@zadrot1705' }}
         run: |
           set -euo pipefail
           missing=()
-          for name in WORKER_API_SECRET BOT_TOKEN; do
+          for name in WORKER_API_SECRET BOT_TOKEN CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID; do
             if [ -z "${!name}" ]; then
               missing+=("$name")
             fi
@@ -53,9 +55,25 @@ jobs:
           pip install -r requirements.txt
           pip install requests
 
+      - name: Resolve and verify Worker URL
+        id: worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          RESPONSE="$(curl -fsS \
+            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/subdomain")"
+          SUBDOMAIN="$(printf '%s' "$RESPONSE" | jq -er 'select(.success == true) | .result.subdomain')"
+          WORKER_URL="https://fisha-tiktok-bot.$SUBDOMAIN.workers.dev"
+          curl -fsS "$WORKER_URL/health" | jq -e '.ok == true' >/dev/null
+          echo "worker_api_url=$WORKER_URL" >> "$GITHUB_OUTPUT"
+          echo "Worker health check passed."
+
       - name: Process one eligible video
         env:
-          WORKER_API_URL: https://fisha-tiktok-bot.ubajdullaevdovbek-sketch.workers.dev
+          WORKER_API_URL: ${{ steps.worker.outputs.worker_api_url }}
           WORKER_API_SECRET: ${{ secrets.WORKER_API_SECRET }}
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           CHANNEL_ID: ${{ secrets.CHANNEL_ID || '@zadrot1705' }}
