@@ -9,6 +9,7 @@ from urllib.parse import urljoin
 import requests
 import yt_dlp
 
+from app.audio import extract_audio_mp3
 from app.queue_runner import process_batch
 from app.tiktok_photos import download_tiktok_photos, is_tiktok_photo_url, resolve_tiktok_url
 
@@ -103,6 +104,33 @@ def publish(path: Path, caption: str):
         raise RuntimeError(result.get("description", "Telegram sendVideo failed"))
 
 
+def publish_audio(mp3_path: Path, title: str):
+    """Send an extracted MP3 as a separate Telegram audio message."""
+    if mp3_path.stat().st_size > 50 * 1024 * 1024:
+        raise RuntimeError("Extracted MP3 exceeds Telegram's 50 MB audio limit")
+    with mp3_path.open("rb") as audio:
+        response = requests.post(
+            f"https://api.telegram.org/bot{BOT_TOKEN}/sendAudio",
+            data={"chat_id": CHANNEL_ID, "title": title[:64] or "TikTok audio", "performer": "TikTok"},
+            files={"audio": (mp3_path.name, audio, "audio/mpeg")},
+            timeout=300,
+        )
+    response.raise_for_status()
+    result = response.json()
+    if not result.get("ok"):
+        raise RuntimeError(result.get("description", "Telegram sendAudio failed"))
+
+
+def publish_audio_best_effort(video_path: Path, folder: Path, title: str):
+    """Extract and send audio after video publication; audio errors never fail the job."""
+    try:
+        mp3_path = extract_audio_mp3(video_path, folder / "audio.mp3")
+        publish_audio(mp3_path, title)
+        print(f"Published separate MP3 audio: {mp3_path.stat().st_size} bytes")
+    except Exception as exc:
+        print(f"Audio extraction/publication skipped; video is already published: {exc}")
+
+
 def publish_photos(paths: list[Path], caption: str):
     if not paths:
         raise RuntimeError("No photos to publish")
@@ -178,12 +206,18 @@ def process_one() -> bool:
                     path, metadata = download_tiktok(resolved_url, folder)
                     author = str(metadata.get("uploader") or metadata.get("creator") or author)
                     caption = caption or str(metadata.get("description") or metadata.get("title") or "")
-                    publish(path, make_caption(caption, author))
+                    final_caption = make_caption(caption, author)
+                    publish(path, final_caption)
                     print(f"Published video #{job_id}")
+                    # Optional MP3 is deliberately post-publication and best-effort.
+                    audio_title = caption.strip() or str(metadata.get("title") or "TikTok audio")
+                    publish_audio_best_effort(path, folder, audio_title)
             elif job["kind"] == "telegram_file":
                 path = folder / f"telegram_{job_id}.mp4"
                 telegram_file(job["telegram_file_id"], path)
                 publish(path, make_caption(caption, author))
+                # Preserve the original video-first path; MP3 is optional.
+                publish_audio_best_effort(path, folder, caption.strip() or f"Telegram video {job_id}")
             else:
                 raise RuntimeError(f"Unsupported job type: {job['kind']}")
 
