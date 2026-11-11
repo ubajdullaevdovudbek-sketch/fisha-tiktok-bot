@@ -4,17 +4,29 @@ on:
   workflow_dispatch:
     inputs:
       tiktok_photo_url:
-        description: Public TikTok Photo Mode URL (only downloads files; does not publish)
+        description: Public TikTok Photo Mode URL (download only; never publishes)
         required: true
         type: string
+  push:
+    branches:
+      - feature/fast-photo-carousel-no-daily-cap
+    paths:
+      - .github/workflows/tiktok-photo-smoke-test.yml
+      - scripts/smoke_test_tiktok_photos.py
 
 permissions:
   contents: read
 
+concurrency:
+  group: tiktok-photo-smoke-test
+  cancel-in-progress: true
+
 jobs:
   download-only:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
+    env:
+      TIKTOK_PHOTO_URL: ${{ inputs.tiktok_photo_url || 'https://vt.tiktok.com/ZSpmmFvfy/' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -27,7 +39,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install requests gallery-dl
       - name: Download and verify Photo Mode images locally
-        run: python scripts/smoke_test_tiktok_photos.py "${{ inputs.tiktok_photo_url }}"
+        run: python scripts/smoke_test_tiktok_photos.py "$TIKTOK_PHOTO_URL"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
