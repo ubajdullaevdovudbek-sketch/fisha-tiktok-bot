@@ -1,3 +1,4 @@
+import json
 import mimetypes
 import os
 import tempfile
@@ -135,7 +136,7 @@ def publish_photos(paths: list[Path], caption: str):
                     files.append((attach_name, (path.name, handle, mimetypes.guess_type(path.name)[0] or "application/octet-stream")))
                 response = requests.post(
                     f"https://api.telegram.org/bot{BOT_TOKEN}/sendMediaGroup",
-                    data={"chat_id": CHANNEL_ID, "media": __import__("json").dumps(media, ensure_ascii=False)},
+                    data={"chat_id": CHANNEL_ID, "media": json.dumps(media, ensure_ascii=False)},
                     files=files,
                     timeout=300,
                 )
