@@ -19,6 +19,7 @@ jobs:
           OWNER_ID: ${{ secrets.OWNER_ID }}
           TELEGRAM_WEBHOOK_SECRET: ${{ secrets.TELEGRAM_WEBHOOK_SECRET }}
           WORKER_API_SECRET: ${{ secrets.WORKER_API_SECRET }}
+          CONTROL_READ_SECRET: ${{ secrets.CONTROL_READ_SECRET }}
         run: |
           set -euo pipefail
           missing=()
@@ -46,6 +47,16 @@ jobs:
           if [ "$TELEGRAM_WEBHOOK_SECRET" = "$WORKER_API_SECRET" ]; then
             echo "::error::Webhook and worker API secrets must be different."
             exit 1
+          fi
+          if [ -n "$CONTROL_READ_SECRET" ]; then
+            if [ "${#CONTROL_READ_SECRET}" -lt 32 ]; then
+              echo "::error::CONTROL_READ_SECRET must be at least 32 characters."
+              exit 1
+            fi
+            if [ "$CONTROL_READ_SECRET" = "$WORKER_API_SECRET" ] || [ "$CONTROL_READ_SECRET" = "$TELEGRAM_WEBHOOK_SECRET" ]; then
+              echo "::error::CONTROL_READ_SECRET must be different from other secrets."
+              exit 1
+            fi
           fi
 
       - uses: actions/checkout@v4
@@ -91,12 +102,16 @@ jobs:
           OWNER_ID: ${{ secrets.OWNER_ID }}
           TELEGRAM_WEBHOOK_SECRET: ${{ secrets.TELEGRAM_WEBHOOK_SECRET }}
           WORKER_API_SECRET: ${{ secrets.WORKER_API_SECRET }}
+          CONTROL_READ_SECRET: ${{ secrets.CONTROL_READ_SECRET }}
         run: |
           set -euo pipefail
           printf '%s' "$BOT_TOKEN" | npx --yes wrangler@4 secret put BOT_TOKEN --config wrangler.toml
           printf '%s' "$OWNER_ID" | npx --yes wrangler@4 secret put OWNER_ID --config wrangler.toml
           printf '%s' "$TELEGRAM_WEBHOOK_SECRET" | npx --yes wrangler@4 secret put TELEGRAM_WEBHOOK_SECRET --config wrangler.toml
           printf '%s' "$WORKER_API_SECRET" | npx --yes wrangler@4 secret put WORKER_API_SECRET --config wrangler.toml
+          if [ -n "$CONTROL_READ_SECRET" ]; then
+            printf '%s' "$CONTROL_READ_SECRET" | npx --yes wrangler@4 secret put CONTROL_READ_SECRET --config wrangler.toml
+          fi
 
       - name: Register Telegram webhook
         env:
