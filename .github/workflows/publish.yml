@@ -16,26 +16,21 @@ jobs:
     steps:
       - name: Validate required secrets
         env:
-          WORKER_API_URL: ${{ secrets.WORKER_API_URL }}
           WORKER_API_SECRET: ${{ secrets.WORKER_API_SECRET }}
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           CHANNEL_ID: ${{ secrets.CHANNEL_ID || '@zadrot1705' }}
         run: |
           set -euo pipefail
           missing=()
-          for name in WORKER_API_URL WORKER_API_SECRET BOT_TOKEN; do
+          for name in WORKER_API_SECRET BOT_TOKEN; do
             if [ -z "${!name}" ]; then
               missing+=("$name")
             fi
           done
           if (("${#missing[@]}" > 0)); then
-            printf '::error::Missing required GitHub Actions secrets: %s\n' "${missing[*]}"
+            printf '::error::Missing required GitHub Actions secrets: %s\\n' "${missing[*]}"
             exit 1
           fi
-          case "$WORKER_API_URL" in
-            https://*) ;;
-            *) echo "::error::WORKER_API_URL must start with https://"; exit 1 ;;
-          esac
           if [ -z "$CHANNEL_ID" ]; then
             echo "::error::CHANNEL_ID is empty; set the CHANNEL_ID secret or update the public channel fallback."
             exit 1
@@ -58,7 +53,7 @@ jobs:
 
       - name: Process one eligible video
         env:
-          WORKER_API_URL: ${{ secrets.WORKER_API_URL }}
+          WORKER_API_URL: https://fisha-tiktok-bot.ubajdullaevdovbek-sketch.workers.dev
           WORKER_API_SECRET: ${{ secrets.WORKER_API_SECRET }}
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           CHANNEL_ID: ${{ secrets.CHANNEL_ID || '@zadrot1705' }}
