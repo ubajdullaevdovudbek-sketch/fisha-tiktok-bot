@@ -143,39 +143,10 @@ async function claimJob(env) {
     "UPDATE videos SET status='queued', claimed_at=NULL WHERE status='processing' AND claimed_at IS NOT NULL AND julianday(claimed_at) < julianday('now', '-20 minutes')"
   ).run();
 
-  const now = new Date();
-  const timeZone = env.TIMEZONE || "Asia/Tashkent";
-  const local = localParts(now, timeZone);
-  const today = `${local.year}-${local.month}-${local.day}`;
-  const currentMinute = Number(local.hour) * 60 + Number(local.minute);
-  const start = minutes(env.PUBLISH_START || "10:00");
-  const end = minutes(env.PUBLISH_END || "21:00");
-  const inWindow = end > start
-    ? currentMinute >= start && currentMinute <= end
-    : currentMinute >= start || currentMinute <= end;
-
   const candidate = await env.DB.prepare(
     "SELECT * FROM videos WHERE status='queued' ORDER BY id LIMIT 1"
   ).first();
   if (!candidate) return null;
-
-  const force = Number(candidate.force_publish) === 1;
-  if (!force && !inWindow) return null;
-
-  const dailyLimit = Math.max(1, Number(env.POSTS_PER_DAY || 3));
-  const published = await env.DB.prepare(
-    "SELECT COUNT(*) AS n FROM videos WHERE status='published' AND published_local_date=?"
-  ).bind(today).first();
-  if (!force && Number(published?.n || 0) >= dailyLimit) return null;
-
-  if (!force && Number(published?.n || 0) > 0) {
-    const last = await env.DB.prepare(
-      "SELECT published_at FROM videos WHERE status='published' ORDER BY published_at DESC LIMIT 1"
-    ).first();
-    const windowLength = end > start ? end - start : 1440 - start + end;
-    const spacingMs = Math.floor(windowLength / dailyLimit) * 60_000;
-    if (last?.published_at && now.getTime() - Date.parse(last.published_at) < spacingMs) return null;
-  }
 
   const changed = await env.DB.prepare(
     "UPDATE videos SET status='processing', claimed_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'), error=NULL WHERE id=? AND status='queued'"
