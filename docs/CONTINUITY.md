@@ -24,7 +24,8 @@ Updated: 2026-11-11
 - `scripts/process_queue.py` processes up to 5 queue jobs per workflow run (clamped 1..10) using `app/queue_runner.py`.
 - Batch runner has tests for batch limit, empty queue, upper clamp, and propagating errors.
 - Added `gallery-dl>=1.32.19,<2` to requirements.
-- Added `app/tiktok_photos.py`: resolves TikTok short URLs; detects canonical `/photo/` paths; calls gallery-dl with TikTok audio and video downloads disabled; sorts downloaded images by slide number.
+- Added `app/tiktok_photos.py`: resolves TikTok short URLs; detects canonical `/photo/` paths; calls gallery-dl with TikTok photo downloads explicitly enabled and audio, video, and covers disabled; sorts downloaded images by slide number.
+- Review against gallery-dl documentation found that the filename template used space-padding (`{num:>03}`), which could defeat numeric filename sorting. Changed it to zero-padding (`{num:03}`) and added a test assertion. gallery-dl documents TikTok `photos`, `audio`, and `videos` options; its TikTok filename metadata includes `num`.
 - Queue worker routes canonical Photo Mode posts to image downloader; sends image batches via Telegram `sendMediaGroup` (max 10 per album) and single images via `sendPhoto`. Captions are attached only to the first image.
 - Regular video jobs still use existing yt-dlp MP4 download and Telegram `sendVideo` flow.
 - Video and Telegram-uploaded MP4 jobs now publish the video first, then best-effort extract the full audio track to a 128 kbps MP3 with FFmpeg and send it via Telegram `sendAudio`.
@@ -32,7 +33,7 @@ Updated: 2026-11-11
 
 ## Tests and verification
 - Existing isolated tests: 8 tests for batch runner and photo downloader; audio helper tests: 2 tests passed separately.
-- Added 5 mocked Telegram photo-publishing tests covering one photo, 2-photo album, splitting 12 photos into groups of 10 + 2, oversized-photo rejection, and Telegram API error handling. These new tests are committed but have not yet been executed in GitHub Actions.
+- Added 5 mocked Telegram photo-publishing tests covering one photo, 2-photo album, splitting 12 photos into groups of 10 + 2, oversized-photo rejection, and Telegram API error handling. These tests are committed but have not yet been executed in GitHub Actions.
 - This is not a full repository CI run.
 - No real TikTok link download has been validated in this environment.
 - No Telegram API call, live queue processing, channel post, Cloudflare deployment, or merge has been performed.
@@ -43,7 +44,7 @@ Updated: 2026-11-11
 ## Known gaps / next steps
 1. Run GitHub Actions tests on this feature branch; ensure the tests workflow is configured to trigger for this branch.
 2. Verify the new audio extraction tests pass; FFmpeg is installed in the publish workflow already.
-2. Inspect actual gallery-dl behavior against a public TikTok Photo Mode URL (without publishing to Telegram) when safe validation is possible.
+2. Inspect actual gallery-dl behavior against a public TikTok Photo Mode URL (without publishing to Telegram) when safe validation is possible; no live post download has yet been validated.
 3. Add mocked tests for Telegram album payload construction and multi-album splitting.
 4. Keep video fast path first; don't add music extraction until video and photo flows are stable.
 5. Audio extraction remains a separate third-priority feature.
