@@ -148,3 +148,92 @@ test("real Worker + local D1: manually prioritized queued video is claimed befor
     await mf.dispose();
   }
 });
+
+
+test("real Worker + local D1: stale video claim is recovered before delivery starts", async () => {
+  const { mf, db } = await setup();
+  try {
+    const inserted = await db.prepare(
+      "INSERT INTO videos(kind, source_url, status, claimed_at) VALUES('tiktok_url', 'https://tiktok.com/video/stale', 'processing', strftime('%Y-%m-%dT%H:%M:%fZ','now','-25 minutes'))"
+    ).run();
+    const id = inserted.meta.last_row_id;
+    const response = await api(mf, "/api/claim", {});
+    assert.equal(response.status, 200);
+    const payload = await response.json();
+    assert.equal(payload.job.id, id);
+    const row = await db.prepare(
+      "SELECT status, publishing_started_at FROM videos WHERE id=?"
+    ).bind(id).first();
+    assert.equal(row.status, "processing");
+    assert.equal(row.publishing_started_at, null);
+  } finally {
+    await mf.dispose();
+  }
+});
+
+test("real Worker + local D1: stale video after delivery start becomes uncertain failure", async () => {
+  const { mf, db } = await setup();
+  try {
+    const inserted = await db.prepare(
+      "INSERT INTO videos(kind, source_url, status, claimed_at, publishing_started_at) VALUES('tiktok_url', 'https://tiktok.com/video/uncertain', 'processing', strftime('%Y-%m-%dT%H:%M:%fZ','now','-30 minutes'), strftime('%Y-%m-%dT%H:%M:%fZ','now','-25 minutes'))"
+    ).run();
+    const id = inserted.meta.last_row_id;
+    const response = await api(mf, "/api/claim", {});
+    assert.equal(response.status, 204);
+    const row = await db.prepare(
+      "SELECT status, error, claimed_at FROM videos WHERE id=?"
+    ).bind(id).first();
+    assert.equal(row.status, "failed");
+    assert.match(row.error, /UNCERTAIN DELIVERY/);
+    assert.equal(row.claimed_at, null);
+  } finally {
+    await mf.dispose();
+  }
+});
+
+test("real Worker + local D1: stale audio claim is recovered before audio send starts", async () => {
+  const { mf, db } = await setup();
+  try {
+    const video = await db.prepare(
+      "INSERT INTO videos(kind, source_url, status) VALUES('tiktok_url', 'https://tiktok.com/video/audio', 'published')"
+    ).run();
+    const inserted = await db.prepare(
+      "INSERT INTO audio_jobs(video_id, kind, source_url, status, claimed_at) VALUES(?, 'tiktok_url', 'https://tiktok.com/video/audio', 'processing', strftime('%Y-%m-%dT%H:%M:%fZ','now','-25 minutes'))"
+    ).bind(video.meta.last_row_id).run();
+    const id = inserted.meta.last_row_id;
+    const response = await api(mf, "/api/audio/claim", {});
+    assert.equal(response.status, 200);
+    const payload = await response.json();
+    assert.equal(payload.job.id, id);
+    const row = await db.prepare(
+      "SELECT status, audio_started_at FROM audio_jobs WHERE id=?"
+    ).bind(id).first();
+    assert.equal(row.status, "processing");
+    assert.equal(row.audio_started_at, null);
+  } finally {
+    await mf.dispose();
+  }
+});
+
+test("real Worker + local D1: stale audio after send start becomes uncertain failure", async () => {
+  const { mf, db } = await setup();
+  try {
+    const video = await db.prepare(
+      "INSERT INTO videos(kind, source_url, status) VALUES('tiktok_url', 'https://tiktok.com/video/audio-uncertain', 'published')"
+    ).run();
+    const inserted = await db.prepare(
+      "INSERT INTO audio_jobs(video_id, kind, source_url, status, claimed_at, audio_started_at) VALUES(?, 'tiktok_url', 'https://tiktok.com/video/audio-uncertain', 'processing', strftime('%Y-%m-%dT%H:%M:%fZ','now','-30 minutes'), strftime('%Y-%m-%dT%H:%M:%fZ','now','-25 minutes'))"
+    ).bind(video.meta.last_row_id).run();
+    const id = inserted.meta.last_row_id;
+    const response = await api(mf, "/api/audio/claim", {});
+    assert.equal(response.status, 204);
+    const row = await db.prepare(
+      "SELECT status, error, claimed_at FROM audio_jobs WHERE id=?"
+    ).bind(id).first();
+    assert.equal(row.status, "failed");
+    assert.match(row.error, /UNCERTAIN DELIVERY/);
+    assert.equal(row.claimed_at, null);
+  } finally {
+    await mf.dispose();
+  }
+});
