@@ -172,13 +172,14 @@ async function claimJob(env) {
     "UPDATE videos SET status='failed', claimed_at=NULL, error='UNCERTAIN DELIVERY: runner stopped after Telegram delivery started; check the channel before /retry' WHERE status='processing' AND publishing_started_at IS NOT NULL AND julianday(publishing_started_at) < julianday('now', '-20 minutes')"
   ).run();
 
+  // Honor the owner's /publish command before normal FIFO queue order.
   const candidate = await env.DB.prepare(
-    "SELECT * FROM videos WHERE status='queued' ORDER BY id LIMIT 1"
+    "SELECT * FROM videos WHERE status='queued' ORDER BY force_publish DESC, id LIMIT 1"
   ).first();
   if (!candidate) return null;
 
   const changed = await env.DB.prepare(
-    "UPDATE videos SET status='processing', claimed_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'), error=NULL WHERE id=? AND status='queued'"
+    "UPDATE videos SET status='processing', force_publish=0, claimed_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'), error=NULL WHERE id=? AND status='queued'"
   ).bind(candidate.id).run();
   if (!changed.meta?.changes) return null;
   return candidate;
