@@ -373,3 +373,89 @@ test("failure after delivery starts is explicitly marked as uncertain", async ()
     17,
   ]);
 });
+
+
+test("failed queue insertion releases the webhook dedupe key for Telegram retry", async () => {
+  const statements = [];
+  const env = {
+    TELEGRAM_WEBHOOK_SECRET: "webhook-secret",
+    OWNER_ID: "100",
+    DB: {
+      prepare(sql) {
+        statements.push(sql);
+        return {
+          bind() { return this; },
+          async run() {
+            if (sql.startsWith("INSERT INTO videos")) throw new Error("temporary queue write failure");
+            return { meta: { changes: 1 } };
+          },
+        };
+      },
+    },
+  };
+  await assert.rejects(
+    worker.fetch(
+      new Request("https://example.test/telegram/webhook", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "X-Telegram-Bot-Api-Secret-Token": "webhook-secret",
+        },
+        body: JSON.stringify({
+          update_id: 125,
+          message: { chat: { id: 100 }, from: { id: 100 }, text: "https://www.tiktok.com/@demo/video/456" },
+        }),
+      }),
+      env,
+    ),
+    /temporary queue write failure/,
+  );
+  assert.ok(statements.some(sql => sql.startsWith("DELETE FROM webhook_updates WHERE update_id=?")));
+});
+
+test("reply failure after queue insertion keeps the webhook dedupe key", async () => {
+  const statements = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify({ ok: false, description: "temporary Telegram failure" }), {
+    status: 200,
+    headers: { "content-type": "application/json" },
+  });
+  const env = {
+    TELEGRAM_WEBHOOK_SECRET: "webhook-secret",
+    OWNER_ID: "100",
+    DB: {
+      prepare(sql) {
+        statements.push(sql);
+        return {
+          bind() { return this; },
+          async run() {
+            if (sql.startsWith("INSERT INTO videos")) return { meta: { changes: 1 } };
+            return { meta: { changes: 1 } };
+          },
+        };
+      },
+    },
+  };
+  try {
+    await assert.rejects(
+      worker.fetch(
+        new Request("https://example.test/telegram/webhook", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "X-Telegram-Bot-Api-Secret-Token": "webhook-secret",
+          },
+          body: JSON.stringify({
+            update_id: 126,
+            message: { chat: { id: 100 }, from: { id: 100 }, text: "https://www.tiktok.com/@demo/video/789" },
+          }),
+        }),
+        env,
+      ),
+      /Telegram API sendMessage/,
+    );
+    assert.ok(!statements.some(sql => sql.startsWith("DELETE FROM webhook_updates WHERE update_id=?")));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
