@@ -131,12 +131,41 @@ def publish_audio_best_effort(video_path: Path, folder: Path, title: str):
         print(f"Audio extraction/publication skipped; video is already published: {exc}")
 
 
+def validate_telegram_photo(path: Path) -> None:
+    """Validate Telegram photo upload constraints without altering image bytes."""
+    max_bytes = 10 * 1024 * 1024
+    if path.stat().st_size > max_bytes:
+        raise RuntimeError(f"Photo exceeds Telegram's 10 MB upload limit: {path.name}")
+
+    try:
+        from PIL import Image
+
+        with Image.open(path) as image:
+            width, height = image.size
+            image.verify()
+    except Exception as exc:
+        raise RuntimeError(f"Photo is unreadable or has an unsupported image format: {path.name} ({exc})") from exc
+
+    if width <= 0 or height <= 0:
+        raise RuntimeError(f"Photo has invalid dimensions: {path.name} ({width}x{height})")
+    if width + height > 10_000:
+        raise RuntimeError(
+            f"Photo dimensions exceed Telegram's 10,000-pixel width+height limit: "
+            f"{path.name} ({width}x{height})"
+        )
+    if max(width, height) / min(width, height) > 20:
+        raise RuntimeError(
+            f"Photo aspect ratio exceeds Telegram's 20:1 limit: {path.name} ({width}x{height})"
+        )
+
+
 def publish_photos(paths: list[Path], caption: str):
     if not paths:
         raise RuntimeError("No photos to publish")
+    # Preflight every image before sending anything, avoiding partial albums
+    # caused by a later file violating Telegram's upload constraints.
     for path in paths:
-        if path.stat().st_size > 10 * 1024 * 1024:
-            raise RuntimeError(f"Photo exceeds Telegram's 10 MB upload limit: {path.name}")
+        validate_telegram_photo(path)
 
     # Telegram media groups contain at most 10 items. A single image is sent
     # with sendPhoto because sendMediaGroup requires at least two items.
