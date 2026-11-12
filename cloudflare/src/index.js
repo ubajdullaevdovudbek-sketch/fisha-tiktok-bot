@@ -91,7 +91,7 @@ async function handleTelegram(request, env) {
 
   if (text === "/queue") {
     const result = await env.DB.prepare(
-      "SELECT id, kind, created_at FROM videos WHERE status='queued' ORDER BY id LIMIT 20"
+      "SELECT id, kind, created_at FROM videos WHERE status='queued' ORDER BY force_publish DESC, id LIMIT 20"
     ).all();
     const rows = result.results || [];
     await reply(env, chatId, rows.length
