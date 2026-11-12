@@ -615,3 +615,52 @@ test("manual audio retry resets the send marker and requeues only failed audio j
     globalThis.fetch = originalFetch;
   }
 });
+
+
+test("audio queue command lists queued, processing, and failed audio jobs", async () => {
+  const originalFetch = globalThis.fetch;
+  let sqlSeen = "";
+  globalThis.fetch = async (_url, options) => {
+    const payload = JSON.parse(options.body);
+    assert.equal(payload.chat_id, 100);
+    assert.match(payload.text, /#23 — failed/);
+    return new Response(JSON.stringify({ ok: true, result: {} }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+  const env = {
+    TELEGRAM_WEBHOOK_SECRET: "webhook-secret",
+    OWNER_ID: "100",
+    DB: {
+      prepare(sql) {
+        sqlSeen = sql;
+        return {
+          async all() {
+            return { results: [{ id: 23, video_id: 17, title: "track", status: "failed" }] };
+          },
+        };
+      },
+    },
+  };
+  try {
+    const response = await worker.fetch(
+      new Request("https://example.test/telegram/webhook", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "X-Telegram-Bot-Api-Secret-Token": "webhook-secret",
+        },
+        body: JSON.stringify({
+          message: { chat: { id: 100 }, from: { id: 100 }, text: "/audio-queue" },
+        }),
+      }),
+      env,
+    );
+    assert.equal(response.status, 200);
+    assert.match(sqlSeen, /FROM audio_jobs/);
+    assert.match(sqlSeen, /status IN \('queued', 'processing', 'failed'\)/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
