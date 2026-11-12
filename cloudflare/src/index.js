@@ -190,6 +190,63 @@ async function api(request, env, path) {
     return new Response("Unauthorized", { status: 401 });
   }
 
+
+  if (path === "/api/audio/enqueue" && request.method === "POST") {
+    const body = await request.json();
+    const videoId = Number(body.video_id);
+    const kind = String(body.kind || "");
+    const sourceUrl = String(body.source_url || "");
+    const telegramFileId = String(body.telegram_file_id || "");
+    const title = String(body.title || "TikTok audio").slice(0, 64);
+    if (!Number.isSafeInteger(videoId) || videoId < 1 ||
+        !["tiktok_url", "telegram_file"].includes(kind) ||
+        (kind === "tiktok_url" && !sourceUrl) ||
+        (kind === "telegram_file" && !telegramFileId)) {
+      return json({ ok: false, error: "Invalid audio task" }, 400);
+    }
+    const result = await env.DB.prepare(
+      "INSERT OR IGNORE INTO audio_jobs(video_id, kind, source_url, telegram_file_id, title) SELECT ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM videos WHERE id=? AND status='published')"
+    ).bind(videoId, kind, sourceUrl || null, telegramFileId || null, title, videoId).run();
+    return json({ ok: true, enqueued: Boolean(result.meta?.changes) });
+  }
+
+  if (path === "/api/audio/claim" && request.method === "POST") {
+    await env.DB.prepare(
+      "UPDATE audio_jobs SET status='queued', claimed_at=NULL WHERE status='processing' AND claimed_at IS NOT NULL AND julianday(claimed_at) < julianday('now', '-20 minutes')"
+    ).run();
+    const candidate = await env.DB.prepare(
+      "SELECT * FROM audio_jobs WHERE status='queued' ORDER BY id LIMIT 1"
+    ).first();
+    if (!candidate) return new Response(null, { status: 204 });
+    const changed = await env.DB.prepare(
+      "UPDATE audio_jobs SET status='processing', claimed_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'), error=NULL WHERE id=? AND status='queued'"
+    ).bind(candidate.id).run();
+    if (!changed.meta?.changes) return new Response(null, { status: 204 });
+    return json({ job: candidate });
+  }
+
+  if (path === "/api/audio/complete" && request.method === "POST") {
+    const body = await request.json();
+    const id = Number(body.id);
+    if (!Number.isSafeInteger(id) || id < 1) return json({ ok: false, error: "Invalid audio job ID" }, 400);
+    const result = await env.DB.prepare(
+      "UPDATE audio_jobs SET status='published', claimed_at=NULL, completed_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'), error=NULL WHERE id=? AND status='processing'"
+    ).bind(id).run();
+    if (!result.meta?.changes) return json({ ok: false, error: "Audio job is not processing" }, 409);
+    return json({ ok: true });
+  }
+
+  if (path === "/api/audio/fail" && request.method === "POST") {
+    const body = await request.json();
+    const id = Number(body.id);
+    if (!Number.isSafeInteger(id) || id < 1) return json({ ok: false, error: "Invalid audio job ID" }, 400);
+    const result = await env.DB.prepare(
+      "UPDATE audio_jobs SET status='failed', claimed_at=NULL, error=? WHERE id=? AND status='processing'"
+    ).bind(String(body.error || "Unknown audio error").slice(0, 500), id).run();
+    if (!result.meta?.changes) return json({ ok: false, error: "Audio job is not processing" }, 409);
+    return json({ ok: true });
+  }
+
   if (path === "/api/claim" && request.method === "POST") {
     const job = await claimJob(env);
     return job ? json({ job }) : new Response(null, { status: 204 });
