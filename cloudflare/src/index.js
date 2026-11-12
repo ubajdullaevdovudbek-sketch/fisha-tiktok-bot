@@ -58,9 +58,15 @@ async function handleTelegram(request, env) {
       "INSERT OR IGNORE INTO webhook_updates(update_id) VALUES(?)"
     ).bind(update.update_id).run();
     if (!seen.meta?.changes) return json({ ok: true, duplicate: true });
-    await env.DB.prepare(
-      "DELETE FROM webhook_updates WHERE created_at < strftime('%Y-%m-%dT%H:%M:%fZ','now','-30 days')"
-    ).run();
+    // Retention cleanup must never prevent the newly recorded update from
+    // being handled: Telegram retries would otherwise be rejected as duplicates.
+    try {
+      await env.DB.prepare(
+        "DELETE FROM webhook_updates WHERE created_at < strftime('%Y-%m-%dT%H:%M:%fZ','now','-30 days')"
+      ).run();
+    } catch (error) {
+      console.warn("Webhook update retention cleanup failed:", error);
+    }
   }
 
   const chatId = message.chat.id;
