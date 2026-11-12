@@ -1,5 +1,6 @@
 name: tests
 on:
+  workflow_dispatch:
   push:
     branches: [main, feature/fast-photo-carousel-no-daily-cap]
   pull_request:
