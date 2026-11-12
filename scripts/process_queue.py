@@ -226,20 +226,25 @@ def process_one() -> bool:
                     print(f"Published video #{job_id}")
                     # Defer optional MP3 until the video job is durably completed.
                     audio_title = caption.strip() or str(metadata.get("title") or "TikTok audio")
-                    audio_task = (path, audio_title)
+                    audio_task = {"kind": "tiktok_url", "source_url": source_url, "title": audio_title}
             elif job["kind"] == "telegram_file":
                 path = folder / f"telegram_{job_id}.mp4"
                 telegram_file(job["telegram_file_id"], path)
                 publish(path, make_caption(caption, author), before_send=mark_delivery_started)
                 # Defer optional MP3 until the video job is durably completed.
-                audio_task = (path, caption.strip() or f"Telegram video {job_id}")
+                audio_task = {"kind": "telegram_file", "telegram_file_id": job["telegram_file_id"], "title": caption.strip() or f"Telegram video {job_id}"}
             else:
                 raise RuntimeError(f"Unsupported job type: {job['kind']}")
 
             # Mark the primary delivery complete before doing optional audio work.
             api("/api/complete", {"id": job_id})
             if audio_task:
-                publish_audio_best_effort(audio_task[0], folder, audio_task[1])
+                try:
+                    api("/api/audio/enqueue", {"video_id": job_id, **audio_task})
+                    print(f"Queued optional MP3 extraction for video #{job_id}")
+                except Exception as audio_queue_error:
+                    # The video is already published; never turn queueing audio into a video failure.
+                    print(f"Could not enqueue optional MP3 for video #{job_id}: {audio_queue_error}")
         return True
     except Exception as exc:
         print(f"Job #{job_id} failed; continuing with the next queue item: {exc}")
