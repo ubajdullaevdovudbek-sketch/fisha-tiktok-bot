@@ -104,6 +104,7 @@ async function handleTelegram(request, env) {
     const result = await env.DB.prepare(
       "UPDATE videos SET force_publish=1 WHERE id=(SELECT id FROM videos WHERE status='queued' ORDER BY id LIMIT 1)"
     ).run();
+    durableSideEffectCommitted = Boolean(result.meta?.changes);
     await reply(env, chatId, result.meta?.changes
       ? "Для следующего видео включена внеочередная публикация."
       : "Очередь пуста.");
