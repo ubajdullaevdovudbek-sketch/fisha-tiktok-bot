@@ -10,6 +10,7 @@ import requests
 import yt_dlp
 
 from app.audio import extract_audio_mp3
+from app.photo_validation import validate_telegram_photo
 from app.queue_runner import process_batch
 from app.tiktok_photos import download_tiktok_photos, is_tiktok_photo_url, resolve_tiktok_url
 
@@ -129,34 +130,6 @@ def publish_audio_best_effort(video_path: Path, folder: Path, title: str):
         print(f"Published separate MP3 audio: {mp3_path.stat().st_size} bytes")
     except Exception as exc:
         print(f"Audio extraction/publication skipped; video is already published: {exc}")
-
-
-def validate_telegram_photo(path: Path) -> None:
-    """Validate Telegram photo upload constraints without altering image bytes."""
-    max_bytes = 10 * 1024 * 1024
-    if path.stat().st_size > max_bytes:
-        raise RuntimeError(f"Photo exceeds Telegram's 10 MB upload limit: {path.name}")
-
-    try:
-        from PIL import Image
-
-        with Image.open(path) as image:
-            width, height = image.size
-            image.verify()
-    except Exception as exc:
-        raise RuntimeError(f"Photo is unreadable or has an unsupported image format: {path.name} ({exc})") from exc
-
-    if width <= 0 or height <= 0:
-        raise RuntimeError(f"Photo has invalid dimensions: {path.name} ({width}x{height})")
-    if width + height > 10_000:
-        raise RuntimeError(
-            f"Photo dimensions exceed Telegram's 10,000-pixel width+height limit: "
-            f"{path.name} ({width}x{height})"
-        )
-    if max(width, height) / min(width, height) > 20:
-        raise RuntimeError(
-            f"Photo aspect ratio exceeds Telegram's 20:1 limit: {path.name} ({width}x{height})"
-        )
 
 
 def publish_photos(paths: list[Path], caption: str):
