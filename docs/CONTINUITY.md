@@ -65,3 +65,10 @@ Updated: 2026-11-11
 - Added regression coverage for 1, 2, 10, 11, and 21 photos: after all batches checkpoint, rerunning from the final offset must not call Telegram again. Added a process-level test proving a photo-progress persistence error calls `/api/fail` and never calls `/api/complete`.
 - Change is on `feature/fast-photo-carousel-no-daily-cap`; commits: `c964844` (fix), `15b03a6` (regression test). Automated CI for these exact commits is still pending verification; do not report this fix as CI-passed until a run for the new head is confirmed.
 - No production Worker, production D1, secrets, webhook, or Telegram channel was touched.
+
+## Remaining behavior/documentation alignment
+- Hosted Worker `claimJob` on this feature branch currently has no daily-count or publish-window gate. `.github/workflows/publish.yml` wakes every 5 minutes and allows up to 5 video/photo jobs per run; `publish-audio.yml` allows up to 3 audio jobs per run.
+- `cloudflare/wrangler.toml` still declares `POSTS_PER_DAY=3`, `PUBLISH_START=10:00`, and `PUBLISH_END=21:00`, but the hosted Worker no longer reads these values. The separate local `python -m app` mode still enforces the 3/day, 10:00–21:00 Asia/Tashkent schedule in `app/scheduler.py`. This difference must be made explicit or intentionally unified.
+- Hosted Telegram `/publish` currently sets `force_publish=1`, while `claimJob` selects queued jobs by `id` and does not order by `force_publish`; in hosted mode this command does not provide a distinct immediate/priority action. Local mode's `/publish` sends the next item immediately. Align or document before release.
+- README wording is stale in places: it describes manual approval, one job per five-minute runner, and deployment state that may not match the current feature branch and observed deployed Worker. Update after behavior is finalized.
+- No real TikTok Photo Mode download-only smoke test has been confirmed. No production D1 inspection/migration, Worker deploy, webhook change, or live Telegram channel test has been performed.
