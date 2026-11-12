@@ -71,7 +71,9 @@ async function handleTelegram(request, env) {
 
   const chatId = message.chat.id;
   const text = String(message.text || "").trim();
+  let durableSideEffectCommitted = false;
 
+  try {
   if (text === "/start") {
     await reply(env, chatId, "Бот подключён. Пришли ссылку TikTok или видео. Команды: /status, /queue, /publish, /retry ID");
     return json({ ok: true });
@@ -117,6 +119,7 @@ async function handleTelegram(request, env) {
     const result = await env.DB.prepare(
       "UPDATE videos SET status='queued', claimed_at=NULL, publishing_started_at=NULL, error=NULL WHERE id=? AND status='failed'"
     ).bind(id).run();
+    durableSideEffectCommitted = Boolean(result.meta?.changes);
     await reply(env, chatId, result.meta?.changes
       ? `Видео #${id} возвращено в очередь. Убедись, что предыдущая попытка не опубликовала его.`
       : "Не найдено видео с ошибкой.");
@@ -127,6 +130,7 @@ async function handleTelegram(request, env) {
     await env.DB.prepare(
       "INSERT INTO videos(kind, telegram_file_id, source_caption) VALUES('telegram_file', ?, ?)"
     ).bind(message.video.file_id, message.caption || "").run();
+    durableSideEffectCommitted = true;
     await reply(env, chatId, "Видео принято в очередь.");
     return json({ ok: true });
   }
@@ -135,12 +139,27 @@ async function handleTelegram(request, env) {
     await env.DB.prepare(
       "INSERT INTO videos(kind, source_url) VALUES('tiktok_url', ?)"
     ).bind(text).run();
+    durableSideEffectCommitted = true;
     await reply(env, chatId, "Ссылка принята. Видео будет скачано и поставлено в очередь публикации.");
     return json({ ok: true });
   }
 
   await reply(env, chatId, "Пришли ссылку TikTok или видеофайл.");
   return json({ ok: true });
+  } catch (error) {
+    // If processing failed before a durable command/queue change, release the
+    // dedupe key so Telegram's retry can safely try this update again.
+    if (Number.isSafeInteger(update.update_id) && !durableSideEffectCommitted) {
+      try {
+        await env.DB.prepare(
+          "DELETE FROM webhook_updates WHERE update_id=?"
+        ).bind(update.update_id).run();
+      } catch (cleanupError) {
+        console.error("Could not release failed webhook update:", cleanupError);
+      }
+    }
+    throw error;
+  }
 }
 
 async function claimJob(env) {
