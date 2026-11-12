@@ -170,3 +170,38 @@ test("failure endpoint does not report success when a job was not updated", asyn
     error: "Video is not currently processing",
   });
 });
+
+test("delivery-start endpoint records that Telegram sending may begin", async () => {
+  let sqlSeen = "";
+  const env = {
+    WORKER_API_SECRET: "worker-secret",
+    DB: { prepare(sql) { sqlSeen = sql; return { bind() { return this; }, async run() { return { meta: { changes: 1 } }; } }; } },
+  };
+  const response = await worker.fetch(
+    new Request("https://example.test/api/started", {
+      method: "POST",
+      headers: { Authorization: "Bearer worker-secret", "content-type": "application/json" },
+      body: JSON.stringify({ id: 7 }),
+    }), env,
+  );
+  assert.equal(response.status, 200);
+  assert.match(sqlSeen, /publishing_started_at/);
+});
+
+test("completion accepts only processing jobs", async () => {
+  let sqlSeen = "";
+  const env = {
+    WORKER_API_SECRET: "worker-secret",
+    TIMEZONE: "Asia/Tashkent",
+    DB: { prepare(sql) { sqlSeen = sql; return { bind() { return this; }, async run() { return { meta: { changes: 1 } }; } }; } },
+  };
+  const response = await worker.fetch(
+    new Request("https://example.test/api/complete", {
+      method: "POST",
+      headers: { Authorization: "Bearer worker-secret", "content-type": "application/json" },
+      body: JSON.stringify({ id: 7 }),
+    }), env,
+  );
+  assert.equal(response.status, 200);
+  assert.match(sqlSeen, /status='processing'/);
+});
