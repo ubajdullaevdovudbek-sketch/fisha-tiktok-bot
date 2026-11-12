@@ -38,7 +38,7 @@ jobs:
       - name: Install free open-source downloader
         run: |
           python -m pip install --upgrade pip
-          pip install requests gallery-dl
+          pip install requests gallery-dl Pillow
       - name: Download and verify Photo Mode images locally
         run: python scripts/smoke_test_tiktok_photos.py "$TIKTOK_PHOTO_URL"
       - uses: actions/upload-artifact@v4
