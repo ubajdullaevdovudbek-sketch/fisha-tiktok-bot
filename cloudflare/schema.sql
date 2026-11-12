@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS videos (
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
   claimed_at TEXT,
   publishing_started_at TEXT,
+  album_next_offset INTEGER NOT NULL DEFAULT 0,
 
   published_at TEXT,
   published_local_date TEXT,
