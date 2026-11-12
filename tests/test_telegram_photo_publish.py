@@ -29,7 +29,7 @@ class TelegramPhotoPublishTests(unittest.TestCase):
         paths = []
         for index in range(count):
             path = Path(folder) / f"{index + 1:03}.jpg"
-            path.write_bytes(b"image")
+            Image.new("RGB", (32, 24), (index, 0, 0)).save(path, format="JPEG")
             paths.append(path)
         return paths
 
@@ -70,6 +70,34 @@ class TelegramPhotoPublishTests(unittest.TestCase):
             with photo.open("wb") as output:
                 output.truncate(10 * 1024 * 1024 + 1)
             with self.assertRaisesRegex(RuntimeError, "10 MB"):
+                publish_photos([photo], "")
+        post.assert_not_called()
+
+    @patch("scripts.process_queue.requests.post", return_value=FakeResponse())
+    def test_dimension_sum_over_10000_rejected_before_any_upload(self, post):
+        with tempfile.TemporaryDirectory() as tmp:
+            valid = self.make_photos(tmp, 1)[0]
+            invalid = Path(tmp) / "too-large-dimensions.jpg"
+            Image.new("RGB", (5001, 5000)).save(invalid, format="JPEG")
+            with self.assertRaisesRegex(RuntimeError, "10,000-pixel"):
+                publish_photos([valid, invalid], "")
+        post.assert_not_called()
+
+    @patch("scripts.process_queue.requests.post", return_value=FakeResponse())
+    def test_aspect_ratio_over_20_rejected_before_upload(self, post):
+        with tempfile.TemporaryDirectory() as tmp:
+            photo = Path(tmp) / "panorama.jpg"
+            Image.new("RGB", (2100, 100)).save(photo, format="JPEG")
+            with self.assertRaisesRegex(RuntimeError, "20:1"):
+                publish_photos([photo], "")
+        post.assert_not_called()
+
+    @patch("scripts.process_queue.requests.post", return_value=FakeResponse())
+    def test_corrupt_image_rejected_before_upload(self, post):
+        with tempfile.TemporaryDirectory() as tmp:
+            photo = Path(tmp) / "broken.jpg"
+            photo.write_bytes(b"not an image")
+            with self.assertRaisesRegex(RuntimeError, "unreadable"):
                 publish_photos([photo], "")
         post.assert_not_called()
 
