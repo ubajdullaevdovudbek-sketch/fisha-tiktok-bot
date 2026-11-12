@@ -89,9 +89,11 @@ def make_caption(caption: str, author: str) -> str:
     return "\n\n".join(parts)[:1024]
 
 
-def publish(path: Path, caption: str):
+def publish(path: Path, caption: str, before_send=None):
     if path.stat().st_size > MAX_VIDEO_MB * 1024 * 1024:
         raise RuntimeError(f"Видео превышает лимит {MAX_VIDEO_MB} МБ")
+    if before_send:
+        before_send()
     with path.open("rb") as video:
         response = requests.post(
             f"https://api.telegram.org/bot{BOT_TOKEN}/sendVideo",
@@ -132,7 +134,7 @@ def publish_audio_best_effort(video_path: Path, folder: Path, title: str):
         print(f"Audio extraction/publication skipped; video is already published: {exc}")
 
 
-def publish_photos(paths: list[Path], caption: str):
+def publish_photos(paths: list[Path], caption: str, before_send=None):
     if not paths:
         raise RuntimeError("No photos to publish")
     # Preflight every image before sending anything, avoiding partial albums
@@ -145,6 +147,8 @@ def publish_photos(paths: list[Path], caption: str):
     for offset in range(0, len(paths), 10):
         batch = paths[offset:offset + 10]
         method = "sendPhoto" if len(batch) == 1 else "sendMediaGroup"
+        if before_send:
+            before_send()
         with ExitStack() as stack:
             handles = [stack.enter_context(path.open("rb")) for path in batch]
             if method == "sendPhoto":
@@ -190,6 +194,13 @@ def process_one() -> bool:
             author = str(job.get("source_author") or "")
             caption = str(job.get("source_caption") or "")
 
+            delivery_started = False
+            def mark_delivery_started():
+                nonlocal delivery_started
+                if not delivery_started:
+                    api("/api/started", {"id": job_id})
+                    delivery_started = True
+
             if job["kind"] == "tiktok_url":
                 source_url = job["source_url"]
                 try:
@@ -202,14 +213,14 @@ def process_one() -> bool:
 
                 if is_tiktok_photo_url(resolved_url):
                     photos = download_tiktok_photos(resolved_url, folder)
-                    publish_photos(photos, make_caption(caption, author))
+                    publish_photos(photos, make_caption(caption, author), before_send=mark_delivery_started)
                     print(f"Published TikTok photo carousel #{job_id} ({len(photos)} images)")
                 else:
                     path, metadata = download_tiktok(resolved_url, folder)
                     author = str(metadata.get("uploader") or metadata.get("creator") or author)
                     caption = caption or str(metadata.get("description") or metadata.get("title") or "")
                     final_caption = make_caption(caption, author)
-                    publish(path, final_caption)
+                    publish(path, final_caption, before_send=mark_delivery_started)
                     print(f"Published video #{job_id}")
                     # Optional MP3 is deliberately post-publication and best-effort.
                     audio_title = caption.strip() or str(metadata.get("title") or "TikTok audio")
@@ -217,7 +228,7 @@ def process_one() -> bool:
             elif job["kind"] == "telegram_file":
                 path = folder / f"telegram_{job_id}.mp4"
                 telegram_file(job["telegram_file_id"], path)
-                publish(path, make_caption(caption, author))
+                publish(path, make_caption(caption, author), before_send=mark_delivery_started)
                 # Preserve the original video-first path; MP3 is optional.
                 publish_audio_best_effort(path, folder, caption.strip() or f"Telegram video {job_id}")
             else:
