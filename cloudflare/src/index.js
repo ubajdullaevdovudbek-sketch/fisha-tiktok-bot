@@ -266,6 +266,21 @@ async function api(request, env, path) {
     return job ? json({ job }) : new Response(null, { status: 204 });
   }
 
+  if (path === "/api/photo-progress" && request.method === "POST") {
+    const body = await request.json();
+    const id = Number(body.id);
+    const nextOffset = Number(body.next_offset);
+    if (!Number.isSafeInteger(id) || id < 1 ||
+        !Number.isSafeInteger(nextOffset) || nextOffset < 1) {
+      return json({ ok: false, error: "Invalid photo progress" }, 400);
+    }
+    const result = await env.DB.prepare(
+      "UPDATE videos SET album_next_offset=MAX(album_next_offset, ?) WHERE id=? AND status='processing' AND kind='tiktok_url'"
+    ).bind(nextOffset, id).run();
+    if (!result.meta?.changes) return json({ ok: false, error: "Photo job is not processing" }, 409);
+    return json({ ok: true, next_offset: nextOffset });
+  }
+
   if (path === "/api/started" && request.method === "POST") {
     const body = await request.json();
     const id = Number(body.id);
