@@ -206,3 +206,80 @@ test("completion accepts only processing jobs", async () => {
   assert.equal(response.status, 200);
   assert.match(sqlSeen, /status='processing'/);
 });
+
+
+test("manual retry clears the old delivery marker and claim timestamp", async () => {
+  const originalFetch = globalThis.fetch;
+  let sqlSeen = "";
+  let values = [];
+  const env = {
+    TELEGRAM_WEBHOOK_SECRET: "webhook-secret",
+    OWNER_ID: "100",
+    DB: {
+      prepare(sql) {
+        sqlSeen = sql;
+        return {
+          bind(...args) { values = args; return this; },
+          async run() { return { meta: { changes: 1 } }; },
+        };
+      },
+    },
+  };
+  globalThis.fetch = async () => new Response(JSON.stringify({ ok: true, result: {} }), {
+    status: 200,
+    headers: { "content-type": "application/json" },
+  });
+  try {
+    const response = await worker.fetch(
+      new Request("https://example.test/telegram/webhook", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "X-Telegram-Bot-Api-Secret-Token": "webhook-secret",
+        },
+        body: JSON.stringify({
+          message: { chat: { id: 100 }, from: { id: 100 }, text: "/retry 17" },
+        }),
+      }),
+      env,
+    );
+    assert.equal(response.status, 200);
+    assert.match(sqlSeen, /status='queued'/);
+    assert.match(sqlSeen, /claimed_at=NULL/);
+    assert.match(sqlSeen, /publishing_started_at=NULL/);
+    assert.match(sqlSeen, /status='failed'/);
+    assert.deepEqual(values, [17]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("claim recovers stale processing jobs differently before and after delivery starts", async () => {
+  const statements = [];
+  const env = {
+    WORKER_API_SECRET: "worker-secret",
+    DB: {
+      prepare(sql) {
+        statements.push(sql);
+        return {
+          bind() { return this; },
+          async run() { return { meta: { changes: 0 } }; },
+          async first() { return null; },
+        };
+      },
+    },
+  };
+  const response = await worker.fetch(
+    new Request("https://example.test/api/claim", {
+      method: "POST",
+      headers: { Authorization: "Bearer worker-secret" },
+    }),
+    env,
+  );
+  assert.equal(response.status, 204);
+  assert.match(statements[0], /publishing_started_at IS NULL/);
+  assert.match(statements[0], /status='queued'/);
+  assert.match(statements[1], /publishing_started_at IS NOT NULL/);
+  assert.match(statements[1], /status='failed'/);
+  assert.match(statements[1], /UNCERTAIN DELIVERY/);
+});
