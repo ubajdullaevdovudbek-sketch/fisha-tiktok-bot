@@ -67,10 +67,10 @@ Updated: 2026-11-11
 - No production Worker, production D1, secrets, webhook, or Telegram channel was touched.
 
 ## Remaining behavior/documentation alignment
-- Hosted Worker `claimJob` on this feature branch currently has no daily-count or publish-window gate. `.github/workflows/publish.yml` wakes every 5 minutes and allows up to 5 video/photo jobs per run; `publish-audio.yml` allows up to 3 audio jobs per run.
-- `cloudflare/wrangler.toml` still declares `POSTS_PER_DAY=3`, `PUBLISH_START=10:00`, and `PUBLISH_END=21:00`, but the hosted Worker no longer reads these values. The separate local `python -m app` mode still enforces the 3/day, 10:00–21:00 Asia/Tashkent schedule in `app/scheduler.py`. This difference must be made explicit or intentionally unified.
-- Hosted Telegram `/publish` currently sets `force_publish=1`, while `claimJob` selects queued jobs by `id` and does not order by `force_publish`; in hosted mode this command does not provide a distinct immediate/priority action. Local mode's `/publish` sends the next item immediately. Align or document before release.
-- README wording is stale in places: it describes manual approval, one job per five-minute runner, and deployment state that may not match the current feature branch and observed deployed Worker. Update after behavior is finalized.
+- Hosted mode has no daily-count or publish-window gate. The obsolete `POSTS_PER_DAY`, `PUBLISH_START`, and `PUBLISH_END` variables have been removed from `cloudflare/wrangler.toml`.
+- Local `python -m app` remains a legacy fallback with a 3/day, 10:00–21:00 Asia/Tashkent schedule. It is not feature-equivalent to hosted mode; keep this difference explicit.
+- Hosted `/publish` and `/queue` now both honor `force_publish DESC, id`. `/publish` sets priority but does not start GitHub Actions immediately.
+- README has been updated to describe hosted batch behavior, local-mode limitations, queue commands, and manual retry commands.
 - No real TikTok Photo Mode download-only smoke test has been confirmed. No production D1 inspection/migration, Worker deploy, webhook change, or live Telegram channel test has been performed.
 
 ## 2026-11-12 continuation: hosted manual publish priority and README alignment
@@ -92,3 +92,9 @@ Updated: 2026-11-11
 
 - Latest complete CI for current branch HEAD `06c875776dcb53a6e54647664ac37cdd19a7a78e`: run `43174553371` passed both `python-tests` and `worker-tests`, including the stale video/audio recovery integration tests and D1 migration checks.
 - Branch comparison at this checkpoint: feature branch is 136 commits ahead of `main`, 0 behind. `main` remains untouched.
+
+## 2026-11-12 continuation: failed audio retry
+- Added owner-only Telegram command `/retry-audio ID` for failed optional audio jobs. It resets `status`, `claimed_at`, `audio_started_at`, and `error` only when the selected audio job is failed.
+- The command warns the owner to check the channel first if the prior send may have succeeded; uncertain delivery must never be blindly resent.
+- Added a Worker unit test that verifies the SQL state guard and reset fields. README command reference updated.
+- CI for this latest code/doc update is running; previous complete run `43174553371` passed both suites on the immediately preceding code head.
