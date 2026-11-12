@@ -112,7 +112,7 @@ async function handleTelegram(request, env) {
   }
 
   if (text.startsWith("/retry")) {
-    const id = Number(text.split(/\\s+/)[1]);
+    const id = Number(text.split(/\s+/)[1]);
     if (!Number.isInteger(id) || id < 1) {
       await reply(env, chatId, "Использование: /retry ID");
       return json({ ok: true });
@@ -128,7 +128,7 @@ async function handleTelegram(request, env) {
   }
 
   if (text.startsWith("/retry-audio")) {
-    const id = Number(text.split(/\\s+/)[1]);
+    const id = Number(text.split(/\s+/)[1]);
     if (!Number.isInteger(id) || id < 1) {
       await reply(env, chatId, "Использование: /retry-audio ID");
       return json({ ok: true });
