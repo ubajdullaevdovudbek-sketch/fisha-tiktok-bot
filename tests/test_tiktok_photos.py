@@ -8,9 +8,20 @@ from app.tiktok_photos import is_tiktok_photo_url, download_tiktok_photos
 
 
 class TikTokPhotoTests(unittest.TestCase):
-    def test_detects_photo_path(self):
+    def test_detects_photo_path_only_on_tiktok_https_hosts(self):
         self.assertTrue(is_tiktok_photo_url("https://www.tiktok.com/@user/photo/123"))
+        self.assertTrue(is_tiktok_photo_url("https://m.tiktok.com/@user/photo/123"))
         self.assertFalse(is_tiktok_photo_url("https://www.tiktok.com/@user/video/123"))
+        self.assertFalse(is_tiktok_photo_url("https://example.com/@user/photo/123"))
+        self.assertFalse(is_tiktok_photo_url("https://tiktok.com.example.org/@user/photo/123"))
+        self.assertFalse(is_tiktok_photo_url("http://www.tiktok.com/@user/photo/123"))
+
+    def test_download_rejects_non_tiktok_photo_url_before_running_gallery_dl(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch("app.tiktok_photos.subprocess.run") as runner:
+                with self.assertRaisesRegex(RuntimeError, "HTTPS TikTok Photo Mode URL"):
+                    download_tiktok_photos("https://example.com/@u/photo/1", Path(tmp))
+        runner.assert_not_called()
 
     def test_downloads_and_sorts_images_by_slide_number(self):
         class Result:
