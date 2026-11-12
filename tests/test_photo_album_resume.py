@@ -53,6 +53,26 @@ class PhotoAlbumResumeTests(unittest.TestCase):
             self.assertEqual(post.call_count, 2)
             self.assertEqual(checkpoints, [10, 12])
 
+    def test_final_checkpoint_can_be_resumed_without_resending_any_photos(self):
+        # After the final group succeeds, the saved offset equals len(photos).
+        # If the later /complete call fails, a retry must be a safe no-op.
+        for count in (1, 2, 10, 11, 21):
+            with self.subTest(count=count), tempfile.TemporaryDirectory() as tmp:
+                photos = self.make_photos(tmp, count)
+                response = Mock()
+                response.raise_for_status.return_value = None
+                response.json.return_value = {"ok": True}
+                checkpoints = []
+                with patch.object(queue, "validate_telegram_photo"), \\
+                     patch.object(queue.requests, "post", return_value=response) as post:
+                    queue.publish_photos(photos, "caption", after_batch=checkpoints.append)
+                    self.assertEqual(checkpoints[-1], count)
+                    sent_count = post.call_count
+                    queue.publish_photos(
+                        photos, "caption", start_offset=checkpoints[-1]
+                    )
+                self.assertEqual(post.call_count, sent_count)
+
     def test_rejects_non_batch_aligned_saved_offset(self):
         with tempfile.TemporaryDirectory() as tmp:
             photos = self.make_photos(tmp, 12)
