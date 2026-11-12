@@ -77,7 +77,7 @@ async function handleTelegram(request, env) {
     ).all();
     const counts = Object.fromEntries((result.results || []).map(x => [x.status, x.n]));
     await reply(env, chatId,
-      `В очереди: ${counts.queued || 0}\nВ обработке: ${counts.processing || 0}\nОпубликовано: ${counts.published || 0}\nОшибки: ${counts.failed || 0}`);
+      `В очереди: ${counts.queued || 0}\nВ обработке: ${counts.processing || 0}\nОпубликовано: ${counts.published || 0}\nОшибки: ${counts.failed || 0}\nНеясный результат отправки: ${counts.uncertain || 0}`);
     return json({ ok: true });
   }
 
@@ -109,10 +109,10 @@ async function handleTelegram(request, env) {
       return json({ ok: true });
     }
     const result = await env.DB.prepare(
-      "UPDATE videos SET status='queued', error=NULL WHERE id=? AND status='failed'"
+      "UPDATE videos SET status='queued', error=NULL WHERE id=? AND status IN ('failed','uncertain')"
     ).bind(id).run();
     await reply(env, chatId, result.meta?.changes
-      ? `Видео #${id} возвращено в очередь.`
+      ? `Видео #${id} возвращено в очередь. Убедись, что предыдущая попытка не опубликовала его.`
       : "Не найдено видео с ошибкой.");
     return json({ ok: true });
   }
@@ -140,7 +140,10 @@ async function handleTelegram(request, env) {
 async function claimJob(env) {
   // Recover claims abandoned by a timed-out or terminated GitHub Actions runner.
   await env.DB.prepare(
-    "UPDATE videos SET status='queued', claimed_at=NULL WHERE status='processing' AND claimed_at IS NOT NULL AND julianday(claimed_at) < julianday('now', '-20 minutes')"
+    "UPDATE videos SET status='queued', claimed_at=NULL WHERE status='processing' AND publishing_started_at IS NULL AND claimed_at IS NOT NULL AND julianday(claimed_at) < julianday('now', '-20 minutes')"
+  ).run();
+  await env.DB.prepare(
+    "UPDATE videos SET status='uncertain', claimed_at=NULL, error='Runner stopped after Telegram delivery started; check the channel before retrying' WHERE status='publishing' AND publishing_started_at IS NOT NULL AND julianday(publishing_started_at) < julianday('now', '-20 minutes')"
   ).run();
 
   const candidate = await env.DB.prepare(
@@ -166,6 +169,17 @@ async function api(request, env, path) {
     return job ? json({ job }) : new Response(null, { status: 204 });
   }
 
+  if (path === "/api/started" && request.method === "POST") {
+    const body = await request.json();
+    const id = Number(body.id);
+    if (!Number.isSafeInteger(id) || id < 1) return json({ ok: false, error: "Invalid video ID" }, 400);
+    const result = await env.DB.prepare(
+      "UPDATE videos SET status='publishing', publishing_started_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND status='processing'"
+    ).bind(id).run();
+    if (!result.meta?.changes) return json({ ok: false, error: "Video is not in the expected state" }, 409);
+    return json({ ok: true });
+  }
+
   if (path === "/api/complete" && request.method === "POST") {
     const body = await request.json();
     const local = localParts(new Date(), env.TIMEZONE || "Asia/Tashkent");
@@ -173,7 +187,7 @@ async function api(request, env, path) {
     const id = Number(body.id);
     if (!Number.isSafeInteger(id) || id < 1) return json({ ok: false, error: "Invalid video ID" }, 400);
     const result = await env.DB.prepare(
-      "UPDATE videos SET status='published', claimed_at=NULL, published_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'), published_local_date=?, error=NULL WHERE id=? AND status='processing'"
+      "UPDATE videos SET status='published', claimed_at=NULL, published_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'), published_local_date=?, error=NULL WHERE id=? AND status='publishing'"
     ).bind(day, id).run();
     if (!result.meta?.changes) return json({ ok: false, error: "Video is not currently processing" }, 409);
     return json({ ok: true });
