@@ -75,7 +75,7 @@ async function handleTelegram(request, env) {
 
   try {
   if (text === "/start") {
-    await reply(env, chatId, "Бот подключён. Пришли ссылку TikTok или видео. Команды: /status, /queue, /publish, /retry ID, /retry-audio ID");
+    await reply(env, chatId, "Бот подключён. Пришли ссылку TikTok или видео. Команды: /status, /queue, /audio-queue, /publish, /retry ID, /retry-audio ID");
     return json({ ok: true });
   }
 
@@ -100,6 +100,16 @@ async function handleTelegram(request, env) {
     return json({ ok: true });
   }
 
+  if (text === "/audio-queue") {
+    const result = await env.DB.prepare(
+      "SELECT id, video_id, title, status FROM audio_jobs WHERE status IN ('queued', 'processing', 'failed') ORDER BY id LIMIT 20"
+    ).all();
+    const rows = result.results || [];
+    await reply(env, chatId, rows.length
+      ? "Очередь аудио:\\n" + rows.map(x => `#${x.id} — ${x.status} (видео #${x.video_id})`).join("\\n")
+      : "Очередь аудио пуста.");
+    return json({ ok: true });
+  }
   if (text === "/publish") {
     const result = await env.DB.prepare(
       "UPDATE videos SET force_publish=1 WHERE id=(SELECT id FROM videos WHERE status='queued' ORDER BY id LIMIT 1)"
