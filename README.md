@@ -1,6 +1,6 @@
 # Fisha TikTok → Telegram Bot
 
-Personal Telegram bot for collecting TikTok links or uploaded videos, reviewing metadata, queueing approved clips, and publishing on a schedule to a Telegram channel.
+Personal Telegram bot for collecting TikTok links or uploaded videos and automatically publishing queued videos or Photo Mode albums to a Telegram channel. The hosted queue has no daily publication cap or time-of-day gate.
 
 ## Current scope
 
@@ -8,7 +8,9 @@ Personal Telegram bot for collecting TikTok links or uploaded videos, reviewing 
 - Accept TikTok URLs and uploaded video files.
 - Download public TikTok videos with `yt-dlp` (watermarks are retained).
 - Extract available metadata; never invent unavailable author/comment data.
-- Queue items for manual approval and scheduled channel publishing.
+- Automatically queue incoming links/files for channel publishing; the hosted mode does not require a manual approval step.
+- Handle TikTok Photo Mode carousels as ordered Telegram photo albums (up to 10 images per Telegram media group).
+- Prioritize the next queued item when the owner sends `/publish`; the hosted runner picks it up on its next scheduled run.
 - Publish captions with source attribution.
 
 ## Important constraints
@@ -20,7 +22,7 @@ Personal Telegram bot for collecting TikTok links or uploaded videos, reviewing 
 
 ## Free scheduled deployment (Cloudflare + GitHub Actions)
 
-The hosted mode uses a Cloudflare Worker for the Telegram webhook and D1 for the queue. A public-repository GitHub Actions runner wakes every five minutes, claims at most one eligible video, downloads it with yt-dlp, and publishes it through the Telegram Bot API. This avoids a paid always-on Python host. Scheduled GitHub jobs can start late, so publication is approximate rather than guaranteed to the exact minute.
+The hosted mode uses a Cloudflare Worker for the Telegram webhook and D1 for the queue. A public-repository GitHub Actions runner wakes every five minutes and processes up to five video/photo jobs per run. It downloads regular videos with yt-dlp and Photo Mode slides with gallery-dl, then publishes them through the Telegram Bot API. A separate workflow processes up to three optional audio jobs per run after video completion. The hosted Worker has no daily cap or 10:00–21:00 publishing window. Scheduled GitHub jobs can start late, so queue pickup is approximate rather than guaranteed to the exact minute. The `/publish` command marks the oldest queued item for priority; it does not start a runner immediately.
 
 ### Required GitHub repository secrets
 
@@ -47,7 +49,8 @@ Add `@Clougptbot` to `@zadrot1705` as an administrator with permission to post m
 ### Limits
 
 - GitHub scheduled runs are best-effort and may be delayed.
-- Jobs claimed by a runner that disappears are returned to the queue after 20 minutes.
+- Video/photo jobs are processed in batches of up to five per run; optional audio jobs use a separate batch of up to three.
+- Jobs claimed by a runner that disappears are returned to the queue after 20 minutes if Telegram delivery has not started. If delivery may have started, the job is marked `UNCERTAIN DELIVERY` and must be checked in the channel before manual retry.
 - Telegram Bot API upload size limits apply; the publisher currently caps source videos at 48 MB.
 - TikTok may block downloads or omit author metadata. The bot never fabricates the most-liked comment; currently it does not scrape comments.
 - Repost only videos you have permission to use.
@@ -67,4 +70,4 @@ See `.env.example`. Never commit `.env`, bot tokens, or API keys.
 
 ## Status
 
-The application code, Cloudflare Worker, D1 schema, scheduled publisher workflow, and automated tests are in place. Deployment is not live until the required GitHub Actions secrets are added and the `deploy-cloudflare` workflow succeeds.
+The feature branch contains the hosted queue, video/photo batch publisher, optional audio queue, and automated tests. The hosted Worker deployment and production D1 schema still require separate read-only verification before release. The feature branch is not live: publish and deploy workflows are restricted to `main`. No real TikTok Photo Mode download smoke test or live Telegram channel test has been confirmed.
