@@ -249,7 +249,7 @@ def process_one() -> bool:
 
 def main():
     processed = process_batch(process_one, MAX_JOBS_PER_RUN)
-    print(f"Run finished. Successfully processed {processed} job(s); limit={MAX_JOBS_PER_RUN}.")
+    print(f"Run finished. Claimed/attempted {processed} job(s); limit={MAX_JOBS_PER_RUN}.")
 
 
 if __name__ == "__main__":
