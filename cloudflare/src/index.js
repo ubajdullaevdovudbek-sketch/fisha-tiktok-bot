@@ -283,9 +283,33 @@ async function api(request, env, path) {
     const day = `${local.year}-${local.month}-${local.day}`;
     const id = Number(body.id);
     if (!Number.isSafeInteger(id) || id < 1) return json({ ok: false, error: "Invalid video ID" }, 400);
-    const result = await env.DB.prepare(
+    const updateVideo = env.DB.prepare(
       "UPDATE videos SET status='published', claimed_at=NULL, published_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'), published_local_date=?, error=NULL WHERE id=? AND status='processing'"
-    ).bind(day, id).run();
+    ).bind(day, id);
+
+    // Persist the optional audio task atomically with video completion. This
+    // prevents a runner crash/API hiccup between /complete and /audio/enqueue
+    // from permanently losing the MP3 task.
+    const audioTask = body.audio_task;
+    if (audioTask != null) {
+      const kind = String(audioTask.kind || "");
+      const sourceUrl = String(audioTask.source_url || "");
+      const telegramFileId = String(audioTask.telegram_file_id || "");
+      const title = String(audioTask.title || "TikTok audio").slice(0, 64);
+      if (!["tiktok_url", "telegram_file"].includes(kind) ||
+          (kind === "tiktok_url" && !sourceUrl) ||
+          (kind === "telegram_file" && !telegramFileId)) {
+        return json({ ok: false, error: "Invalid audio task" }, 400);
+      }
+      const insertAudio = env.DB.prepare(
+        "INSERT OR IGNORE INTO audio_jobs(video_id, kind, source_url, telegram_file_id, title) SELECT ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM videos WHERE id=? AND status='processing')"
+      ).bind(id, kind, sourceUrl || null, telegramFileId || null, title, id);
+      const results = await env.DB.batch([insertAudio, updateVideo]);
+      if (!results[1]?.meta?.changes) return json({ ok: false, error: "Video is not in the expected state" }, 409);
+      return json({ ok: true, audio_enqueued: Boolean(results[0]?.meta?.changes) });
+    }
+
+    const result = await updateVideo.run();
     if (!result.meta?.changes) return json({ ok: false, error: "Video is not in the expected state" }, 409);
     return json({ ok: true });
   }
