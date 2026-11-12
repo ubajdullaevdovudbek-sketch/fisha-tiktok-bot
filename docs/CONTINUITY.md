@@ -81,3 +81,9 @@ Updated: 2026-11-11
 - Explicitly documented that `python -m app` remains a legacy fallback with the 3/day and 10:00–21:00 schedule and does not yet include the hosted Photo Mode album/audio queue pipeline. Do not imply local and hosted modes are feature-equivalent.
 - CI run `43174030567` passed both `python-tests` and `worker-tests` for commit `36eaa1e593677d2be739691866756c90756116e5`; this includes the new D1 priority integration test. Later documentation/reply-only commits are being checked by the latest CI run.
 - All changes remain on the feature branch. No production D1, Worker, webhook, secrets, or Telegram channel were changed.
+
+## 2026-11-12 continuation: queue visibility and stale-claim lifecycle
+- `/queue` now orders queued items by `force_publish DESC, id`, matching the actual hosted claim priority so the owner sees the next-to-run item first.
+- Added local D1 integration coverage for stale video/audio claims: jobs abandoned before Telegram delivery starts return to the queue; jobs abandoned after delivery-start markers become `UNCERTAIN DELIVERY` failures instead of being resent automatically.
+- These tests exercise the actual Worker endpoints against Miniflare D1, not production D1.
+- Current code changes are on the feature branch; production deployment and live Telegram behavior remain unverified and unchanged.
