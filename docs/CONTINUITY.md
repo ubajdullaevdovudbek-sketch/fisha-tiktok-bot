@@ -52,7 +52,9 @@ Updated: 2026-11-11
 
 
 ### Duplicate-publication protection
-- Jobs transition from `processing` to `publishing` immediately before the first Telegram send. Only stale `processing` jobs are automatically requeued.
-- A stale `publishing` job becomes `uncertain` and is not automatically retried. Check the Telegram channel before using `/retry ID`.
-- `/api/complete` accepts only `publishing` jobs. `/api/fail` accepts `processing` and `publishing` jobs.
-- This narrows the duplicate window but cannot eliminate the tiny crash window between Telegram accepting a message and the runner receiving/storing the response.
+- Job status remains `processing`. Immediately before the first Telegram upload, the runner calls `/api/started`, which records `publishing_started_at`. The marker is idempotent: repeated calls preserve the original timestamp.
+- A stale `processing` job with no delivery marker is automatically requeued after 20 minutes.
+- A stale `processing` job with a delivery marker is moved to `failed` with an `UNCERTAIN DELIVERY` error. It is not automatically retried because Telegram may already have accepted the post.
+- `/api/complete` and `/api/fail` accept only jobs still in `processing`. If delivery had started, failures are marked as uncertain.
+- Before using `/retry ID`, manually check the Telegram channel to confirm whether the post appeared.
+- This protection narrows the duplicate window but cannot eliminate the tiny crash window between Telegram accepting a message and the runner receiving/storing the response.
