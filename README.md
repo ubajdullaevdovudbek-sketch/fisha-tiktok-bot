@@ -62,7 +62,7 @@ Add `@Clougptbot` to `@zadrot1705` as an administrator with permission to post m
 3. Install dependencies: `pip install -r requirements.txt`.
 4. Start: `python -m app`.
 
-The bot uses long polling, so no public webhook URL is needed.
+The bot uses long polling, so no public webhook URL is needed. **This local fallback is still legacy:** it currently uses the `POSTS_PER_DAY` limit and `PUBLISH_START`/`PUBLISH_END` window (defaults: 3 posts/day, 10:00–21:00 Asia/Tashkent), and it does not yet include the hosted Photo Mode album and separate audio-queue workflows. The no-daily-cap and full photo/audio pipeline described above apply to hosted mode.
 
 ## Configuration
 
