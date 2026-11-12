@@ -25,6 +25,9 @@ jobs:
           node-version: "22"
       - name: Check Worker syntax
         run: node --check cloudflare/src/index.js
-      - name: Test Worker access controls
+      - name: Install local D1 test runtime
+        working-directory: cloudflare
+        run: npm install --no-save miniflare@^3
+      - name: Test Worker access controls and local D1 integration
         working-directory: cloudflare
         run: node --test tests/*.test.mjs
