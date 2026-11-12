@@ -89,3 +89,6 @@ Updated: 2026-11-11
 - Current code changes are on the feature branch; production deployment and live Telegram behavior remain unverified and unchanged.
 
 - Removed unused `POSTS_PER_DAY`, `PUBLISH_START`, and `PUBLISH_END` variables from the hosted Wrangler config. They were not enforced by the hosted Worker and misleadingly suggested that the hosted path still had a daily cap/window. The legacy local app still reads its own settings and remains unchanged.
+
+- Latest complete CI for current branch HEAD `06c875776dcb53a6e54647664ac37cdd19a7a78e`: run `43174553371` passed both `python-tests` and `worker-tests`, including the stale video/audio recovery integration tests and D1 migration checks.
+- Branch comparison at this checkpoint: feature branch is 136 commits ahead of `main`, 0 behind. `main` remains untouched.
