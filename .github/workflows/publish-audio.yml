@@ -1,0 +1,59 @@
+name: publish-audio-queue
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: fisha-audio-queue
+  cancel-in-progress: false
+
+jobs:
+  publish-audio-queue:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install audio tools and dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install requests
+
+      - name: Resolve and verify Worker URL
+        id: worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          CLOUDFLARE_API_TOKEN="$(printf '%s' "$CLOUDFLARE_API_TOKEN" | tr -d '[:space:]')"
+          export CLOUDFLARE_API_TOKEN
+          RESPONSE="$(curl -fsS \
+            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/subdomain")"
+          SUBDOMAIN="$(printf '%s' "$RESPONSE" | jq -er 'select(.success == true) | .result.subdomain')"
+          WORKER_URL="https://fisha-tiktok-bot.$SUBDOMAIN.workers.dev"
+          curl -fsS "$WORKER_URL/health" | jq -e '.ok == true' >/dev/null
+          echo "worker_api_url=$WORKER_URL" >> "$GITHUB_OUTPUT"
+
+      - name: Process optional MP3 jobs
+        env:
+          WORKER_API_URL: ${{ steps.worker.outputs.worker_api_url }}
+          WORKER_API_SECRET: ${{ secrets.WORKER_API_SECRET }}
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          CHANNEL_ID: ${{ secrets.CHANNEL_ID || '@zadrot1705' }}
+          MAX_AUDIO_JOBS_PER_RUN: "3"
+        run: python scripts/process_audio_queue.py
