@@ -35,12 +35,23 @@ class QueueRunnerTests(unittest.TestCase):
         self.assertEqual(process_batch(process_one, 99), 10)
         self.assertEqual(len(calls), 10)
 
-    def test_does_not_swallow_job_errors(self):
+    def test_claim_api_errors_still_abort_batch(self):
         def process_one():
-            raise RuntimeError("download failed")
+            raise RuntimeError("claim API unavailable")
 
-        with self.assertRaisesRegex(RuntimeError, "download failed"):
+        with self.assertRaisesRegex(RuntimeError, "claim API unavailable"):
             process_batch(process_one, 5)
+
+    def test_continues_after_a_job_is_marked_failed(self):
+        outcomes = iter([True, True, True, False])
+        calls = []
+
+        def process_one():
+            calls.append(len(calls) + 1)
+            return next(outcomes)
+
+        self.assertEqual(process_batch(process_one, 5), 3)
+        self.assertEqual(len(calls), 4)
 
 
 if __name__ == "__main__":
