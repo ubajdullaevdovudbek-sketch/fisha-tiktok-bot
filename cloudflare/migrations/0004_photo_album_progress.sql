@@ -1,0 +1,1 @@
+ALTER TABLE videos ADD COLUMN album_next_offset INTEGER NOT NULL DEFAULT 0;
