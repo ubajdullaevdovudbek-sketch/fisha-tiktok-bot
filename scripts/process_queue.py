@@ -137,9 +137,12 @@ def publish_audio_best_effort(video_path: Path, folder: Path, title: str):
         print(f"Audio extraction/publication skipped; video is already published: {exc}")
 
 
-def publish_photos(paths: list[Path], caption: str, before_send=None):
+def publish_photos(paths: list[Path], caption: str, before_send=None,
+                   start_offset: int = 0, after_batch=None):
     if not paths:
         raise RuntimeError("No photos to publish")
+    if start_offset < 0 or start_offset > len(paths) or start_offset % 10:
+        raise RuntimeError(f"Invalid saved photo album offset: {start_offset}")
     # Preflight every image before sending anything, avoiding partial albums
     # caused by a later file violating Telegram's upload constraints.
     for path in paths:
@@ -147,7 +150,7 @@ def publish_photos(paths: list[Path], caption: str, before_send=None):
 
     # Telegram media groups contain at most 10 items. A single image is sent
     # with sendPhoto because sendMediaGroup requires at least two items.
-    for offset in range(0, len(paths), 10):
+    for offset in range(start_offset, len(paths), 10):
         batch = paths[offset:offset + 10]
         method = "sendPhoto" if len(batch) == 1 else "sendMediaGroup"
         if before_send:
@@ -181,6 +184,8 @@ def publish_photos(paths: list[Path], caption: str, before_send=None):
         result = response.json()
         if not result.get("ok"):
             raise RuntimeError(result.get("description", f"Telegram API {method} failed"))
+        if after_batch:
+            after_batch(offset + len(batch))
 
 
 def process_one() -> bool:
@@ -218,7 +223,17 @@ def process_one() -> bool:
 
                 if is_tiktok_photo_url(resolved_url):
                     photos = download_tiktok_photos(resolved_url, folder)
-                    publish_photos(photos, make_caption(caption, author), before_send=mark_delivery_started)
+                    saved_offset = int(job.get("album_next_offset") or 0)
+                    publish_photos(
+                        photos,
+                        make_caption(caption, author),
+                        before_send=mark_delivery_started,
+                        start_offset=saved_offset,
+                        after_batch=lambda next_offset: api(
+                            "/api/photo-progress",
+                            {"id": job_id, "next_offset": next_offset},
+                        ),
+                    )
                     print(f"Published TikTok photo carousel #{job_id} ({len(photos)} images)")
                 else:
                     path, metadata = download_tiktok(resolved_url, folder)
