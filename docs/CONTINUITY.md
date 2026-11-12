@@ -87,3 +87,5 @@ Updated: 2026-11-11
 - Added local D1 integration coverage for stale video/audio claims: jobs abandoned before Telegram delivery starts return to the queue; jobs abandoned after delivery-start markers become `UNCERTAIN DELIVERY` failures instead of being resent automatically.
 - These tests exercise the actual Worker endpoints against Miniflare D1, not production D1.
 - Current code changes are on the feature branch; production deployment and live Telegram behavior remain unverified and unchanged.
+
+- Removed unused `POSTS_PER_DAY`, `PUBLISH_START`, and `PUBLISH_END` variables from the hosted Wrangler config. They were not enforced by the hosted Worker and misleadingly suggested that the hosted path still had a daily cap/window. The legacy local app still reads its own settings and remains unchanged.
