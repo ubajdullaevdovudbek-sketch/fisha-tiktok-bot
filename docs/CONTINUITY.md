@@ -63,7 +63,7 @@ Updated: 2026-11-11
 - Found a concrete retry bug in `publish_photos`: validation rejected a saved offset equal to `len(paths)` unless the total photo count was divisible by 10. For albums of 1, 2, 11, 21, etc., the final successful checkpoint could therefore make a retry fail before it reached the no-op completion path (for example, if Worker `/complete` failed after the final Telegram batch was sent).
 - Fixed validation to permit exactly `start_offset == len(paths)`, while still requiring intermediate offsets to align to 10. This lets a fully checkpointed album resume as a no-op without resending images.
 - Added regression coverage for 1, 2, 10, 11, and 21 photos: after all batches checkpoint, rerunning from the final offset must not call Telegram again. Added a process-level test proving a photo-progress persistence error calls `/api/fail` and never calls `/api/complete`.
-- Change is on `feature/fast-photo-carousel-no-daily-cap`; commits: `c964844` (fix), `15b03a6` (regression test). Automated CI for these exact commits is still pending verification; do not report this fix as CI-passed until a run for the new head is confirmed.
+- Change is on `feature/fast-photo-carousel-no-daily-cap`; commits: `c964844` (fix), `15b03a6` (regression test). The complete CI run for the branch head at that stage passed: run `43172625205`.
 - No production Worker, production D1, secrets, webhook, or Telegram channel was touched.
 
 ## Remaining behavior/documentation alignment
@@ -72,3 +72,12 @@ Updated: 2026-11-11
 - Hosted Telegram `/publish` currently sets `force_publish=1`, while `claimJob` selects queued jobs by `id` and does not order by `force_publish`; in hosted mode this command does not provide a distinct immediate/priority action. Local mode's `/publish` sends the next item immediately. Align or document before release.
 - README wording is stale in places: it describes manual approval, one job per five-minute runner, and deployment state that may not match the current feature branch and observed deployed Worker. Update after behavior is finalized.
 - No real TikTok Photo Mode download-only smoke test has been confirmed. No production D1 inspection/migration, Worker deploy, webhook change, or live Telegram channel test has been performed.
+
+## 2026-11-12 continuation: hosted manual publish priority and README alignment
+- Fixed hosted `/publish`: queue claiming now selects `force_publish DESC, id`, so the manually prioritized job is claimed before older FIFO jobs; the priority flag is cleared when the job is claimed.
+- Updated the hosted `/publish` reply to clarify that it prioritizes the next job but does not start GitHub Actions immediately. Scheduled Actions pickup is best-effort and may be delayed.
+- Added a Worker unit test and a real Worker + local Miniflare D1 integration test proving a later manually prioritized job is claimed before an older queued job.
+- Updated README to describe hosted behavior accurately: no daily cap/time gate, up to 5 video/photo jobs per run, up to 3 optional audio jobs per run, and the actual `/publish` semantics.
+- Explicitly documented that `python -m app` remains a legacy fallback with the 3/day and 10:00–21:00 schedule and does not yet include the hosted Photo Mode album/audio queue pipeline. Do not imply local and hosted modes are feature-equivalent.
+- CI run `43174030567` passed both `python-tests` and `worker-tests` for commit `36eaa1e593677d2be739691866756c90756116e5`; this includes the new D1 priority integration test. Later documentation/reply-only commits are being checked by the latest CI run.
+- All changes remain on the feature branch. No production D1, Worker, webhook, secrets, or Telegram channel were changed.
