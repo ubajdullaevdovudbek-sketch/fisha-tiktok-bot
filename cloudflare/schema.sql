@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS audio_jobs (
     CHECK (status IN ('queued', 'processing', 'published', 'failed')),
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
   claimed_at TEXT,
+  audio_started_at TEXT,
   completed_at TEXT,
   error TEXT
 );
