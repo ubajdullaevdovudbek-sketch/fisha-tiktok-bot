@@ -17,10 +17,20 @@ async function setup() {
       TIMEZONE: "UTC",
     },
   });
-  await mf.ready;
-  const db = await mf.getD1Database("DB");
-  await db.exec(await readFile(schemaPath, "utf8"));
-  return { mf, db };
+  try {
+    await mf.ready;
+    const db = await mf.getD1Database("DB");
+    const schema = await readFile(schemaPath, "utf8");
+    // D1 exec may split multiline schema incorrectly; prepare each SQL statement.
+    for (const statement of schema.split(";")) {
+      const sql = statement.trim();
+      if (sql) await db.prepare(sql).run();
+    }
+    return { mf, db };
+  } catch (error) {
+    await mf.dispose();
+    throw error;
+  }
 }
 
 async function api(mf, path, body) {
