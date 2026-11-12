@@ -298,10 +298,6 @@ async function api(request, env, path) {
     const day = `${local.year}-${local.month}-${local.day}`;
     const id = Number(body.id);
     if (!Number.isSafeInteger(id) || id < 1) return json({ ok: false, error: "Invalid video ID" }, 400);
-    const updateVideo = env.DB.prepare(
-      "UPDATE videos SET status='published', claimed_at=NULL, published_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'), published_local_date=?, error=NULL WHERE id=? AND status='processing'"
-    ).bind(day, id);
-
     // Persist the optional audio task atomically with video completion. This
     // prevents a runner crash/API hiccup between /complete and /audio/enqueue
     // from permanently losing the MP3 task.
@@ -319,11 +315,17 @@ async function api(request, env, path) {
       const insertAudio = env.DB.prepare(
         "INSERT OR IGNORE INTO audio_jobs(video_id, kind, source_url, telegram_file_id, title) SELECT ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM videos WHERE id=? AND status='processing')"
       ).bind(id, kind, sourceUrl || null, telegramFileId || null, title, id);
+      const updateVideo = env.DB.prepare(
+        "UPDATE videos SET status='published', claimed_at=NULL, published_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'), published_local_date=?, error=NULL WHERE id=? AND status='processing'"
+      ).bind(day, id);
       const results = await env.DB.batch([insertAudio, updateVideo]);
       if (!results[1]?.meta?.changes) return json({ ok: false, error: "Video is not in the expected state" }, 409);
       return json({ ok: true, audio_enqueued: Boolean(results[0]?.meta?.changes) });
     }
 
+    const updateVideo = env.DB.prepare(
+      "UPDATE videos SET status='published', claimed_at=NULL, published_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'), published_local_date=?, error=NULL WHERE id=? AND status='processing'"
+    ).bind(day, id);
     const result = await updateVideo.run();
     if (!result.meta?.changes) return json({ ok: false, error: "Video is not in the expected state" }, 409);
     return json({ ok: true });
