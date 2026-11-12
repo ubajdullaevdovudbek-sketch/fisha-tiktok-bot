@@ -139,7 +139,7 @@ test("completion endpoint rejects invalid IDs and reports missing processing job
   assert.equal(missing.status, 409);
   assert.deepEqual(await missing.json(), {
     ok: false,
-    error: "Video is not currently processing",
+    error: "Video is not in the expected state",
   });
   assert.equal(writes, 1);
 });
@@ -185,7 +185,8 @@ test("delivery-start endpoint records that Telegram sending may begin", async ()
     }), env,
   );
   assert.equal(response.status, 200);
-  assert.match(sqlSeen, /publishing_started_at/);
+  assert.match(sqlSeen, /publishing_started_at=COALESCE\(publishing_started_at,/);
+  assert.match(sqlSeen, /status=\x27processing\x27/);
 });
 
 test("completion accepts only processing jobs", async () => {
