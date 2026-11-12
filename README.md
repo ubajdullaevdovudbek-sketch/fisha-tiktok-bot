@@ -18,6 +18,7 @@ Personal Telegram bot for collecting TikTok links or uploaded videos and automat
 - `/start` — show bot instructions.
 - `/status` — show video queue counts.
 - `/queue` — list queued video/photo jobs, with manually prioritized jobs first.
+- `/audio-queue` — list queued, processing, and failed MP3 jobs with their audio job IDs.
 - `/publish` — prioritize the oldest queued video/photo job for the next scheduled runner.
 - `/retry ID` — requeue a failed video/photo job after checking the channel if delivery was uncertain.
 - `/retry-audio ID` — requeue a failed optional MP3 job; check the channel first if the prior send may have succeeded.
