@@ -63,7 +63,7 @@ class PhotoAlbumResumeTests(unittest.TestCase):
                 response.raise_for_status.return_value = None
                 response.json.return_value = {"ok": True}
                 checkpoints = []
-                with patch.object(queue, "validate_telegram_photo"), \\
+                with patch.object(queue, "validate_telegram_photo"), \
                      patch.object(queue.requests, "post", return_value=response) as post:
                     queue.publish_photos(photos, "caption", after_batch=checkpoints.append)
                     self.assertEqual(checkpoints[-1], count)
