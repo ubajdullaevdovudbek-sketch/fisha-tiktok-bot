@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS videos (
   force_publish INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
   claimed_at TEXT,
+  publishing_started_at TEXT,
 
   published_at TEXT,
   published_local_date TEXT,
