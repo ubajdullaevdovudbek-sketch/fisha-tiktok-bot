@@ -226,11 +226,14 @@ def process_one() -> bool:
         api("/api/complete", {"id": job_id})
         return True
     except Exception as exc:
+        print(f"Job #{job_id} failed; continuing with the next queue item: {exc}")
         try:
             api("/api/fail", {"id": job_id, "error": str(exc)[:500]})
         except Exception as api_error:
-            print(f"Could not mark job failed: {api_error}")
-        raise
+            print(f"Could not mark job #{job_id} failed: {api_error}")
+        # This item was claimed, so count the attempt and continue. Claim/API
+        # errors happen before this try block and still abort the batch.
+        return True
 
 
 def main():
