@@ -568,3 +568,50 @@ test("claim prioritizes manually requested publication before older queued jobs"
   const claim = statements.find((sql) => sql.includes("UPDATE videos SET status='processing'"));
   assert.match(claim, /force_publish=0/);
 });
+
+
+test("manual audio retry resets the send marker and requeues only failed audio jobs", async () => {
+  const originalFetch = globalThis.fetch;
+  let sqlSeen = "";
+  let values = [];
+  globalThis.fetch = async () => new Response(JSON.stringify({ ok: true, result: {} }), {
+    status: 200,
+    headers: { "content-type": "application/json" },
+  });
+  const env = {
+    TELEGRAM_WEBHOOK_SECRET: "webhook-secret",
+    OWNER_ID: "100",
+    DB: {
+      prepare(sql) {
+        sqlSeen = sql;
+        return {
+          bind(...args) { values = args; return this; },
+          async run() { return { meta: { changes: 1 } }; },
+        };
+      },
+    },
+  };
+  try {
+    const response = await worker.fetch(
+      new Request("https://example.test/telegram/webhook", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "X-Telegram-Bot-Api-Secret-Token": "webhook-secret",
+        },
+        body: JSON.stringify({
+          message: { chat: { id: 100 }, from: { id: 100 }, text: "/retry-audio 23" },
+        }),
+      }),
+      env,
+    );
+    assert.equal(response.status, 200);
+    assert.match(sqlSeen, /UPDATE audio_jobs SET status='queued'/);
+    assert.match(sqlSeen, /claimed_at=NULL/);
+    assert.match(sqlSeen, /audio_started_at=NULL/);
+    assert.match(sqlSeen, /status='failed'/);
+    assert.deepEqual(values, [23]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
