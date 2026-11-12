@@ -239,15 +239,14 @@ def process_one() -> bool:
             else:
                 raise RuntimeError(f"Unsupported job type: {job['kind']}")
 
-            # Mark the primary delivery complete before doing optional audio work.
-            api("/api/complete", {"id": job_id})
+            # Complete the video and persist its optional audio task in one
+            # Worker-side D1 transaction, so a crash cannot lose the MP3 job.
+            completion = {"id": job_id}
             if audio_task:
-                try:
-                    api("/api/audio/enqueue", {"video_id": job_id, **audio_task})
-                    print(f"Queued optional MP3 extraction for video #{job_id}")
-                except Exception as audio_queue_error:
-                    # The video is already published; never turn queueing audio into a video failure.
-                    print(f"Could not enqueue optional MP3 for video #{job_id}: {audio_queue_error}")
+                completion["audio_task"] = audio_task
+            api("/api/complete", completion)
+            if audio_task:
+                print(f"Queued optional MP3 extraction for video #{job_id}")
         return True
     except Exception as exc:
         print(f"Job #{job_id} failed; continuing with the next queue item: {exc}")
