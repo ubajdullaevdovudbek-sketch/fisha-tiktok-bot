@@ -33,7 +33,10 @@ def api(path: str, payload=None):
     if response.status_code == 204:
         return None
     response.raise_for_status()
-    return response.json()
+    data = response.json()
+    if isinstance(data, dict) and data.get("ok") is False:
+        raise RuntimeError(data.get("error", f"Worker API {path} failed"))
+    return data
 
 
 def telegram_file(file_id: str, target: Path) -> None:
