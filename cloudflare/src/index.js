@@ -174,7 +174,7 @@ async function api(request, env, path) {
     const id = Number(body.id);
     if (!Number.isSafeInteger(id) || id < 1) return json({ ok: false, error: "Invalid video ID" }, 400);
     const result = await env.DB.prepare(
-      "UPDATE videos SET publishing_started_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND status='processing'"
+      "UPDATE videos SET publishing_started_at=COALESCE(publishing_started_at, strftime('%Y-%m-%dT%H:%M:%fZ','now')) WHERE id=? AND status='processing'"
     ).bind(id).run();
     if (!result.meta?.changes) return json({ ok: false, error: "Video is not in the expected state" }, 409);
     return json({ ok: true });
