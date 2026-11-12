@@ -56,5 +56,5 @@ Updated: 2026-11-11
 - A stale `processing` job with no delivery marker is automatically requeued after 20 minutes.
 - A stale `processing` job with a delivery marker is moved to `failed` with an `UNCERTAIN DELIVERY` error. It is not automatically retried because Telegram may already have accepted the post.
 - `/api/complete` and `/api/fail` accept only jobs still in `processing`. If delivery had started, failures are marked as uncertain.
-- Before using `/retry ID`, manually check the Telegram channel to confirm whether the post appeared.
+- Before using `/retry ID`, manually check the Telegram channel to confirm whether the post appeared. A verified manual retry clears the old `claimed_at` and `publishing_started_at` values so the previous delivery marker cannot immediately classify the new attempt as stale/uncertain.
 - This protection narrows the duplicate window but cannot eliminate the tiny crash window between Telegram accepting a message and the runner receiving/storing the response.
