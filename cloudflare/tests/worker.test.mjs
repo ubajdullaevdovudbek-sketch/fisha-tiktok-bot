@@ -527,3 +527,44 @@ test("publish reply failure keeps webhook dedupe key and prevents applying publi
     globalThis.fetch = originalFetch;
   }
 });
+
+
+test("claim prioritizes manually requested publication before older queued jobs", async () => {
+  const statements = [];
+  let candidateReturned = false;
+  const env = {
+    WORKER_API_SECRET: "worker-secret",
+    DB: {
+      prepare(sql) {
+        statements.push(sql);
+        return {
+          bind() { return this; },
+          async run() { return { meta: { changes: 1 } }; },
+          async first() {
+            if (sql.includes("SELECT * FROM videos")) {
+              candidateReturned = true;
+              return { id: 9, force_publish: 1, status: "queued" };
+            }
+            return null;
+          },
+        };
+      },
+    },
+  };
+  const response = await worker.fetch(
+    new Request("https://example.test/api/claim", {
+      method: "POST",
+      headers: { Authorization: "Bearer worker-secret" },
+    }),
+    env,
+  );
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), {
+    job: { id: 9, force_publish: 1, status: "queued" },
+  });
+  assert.equal(candidateReturned, true);
+  const select = statements.find((sql) => sql.includes("SELECT * FROM videos"));
+  assert.match(select, /ORDER BY force_publish DESC, id LIMIT 1/);
+  const claim = statements.find((sql) => sql.includes("UPDATE videos SET status='processing'"));
+  assert.match(claim, /force_publish=0/);
+});
