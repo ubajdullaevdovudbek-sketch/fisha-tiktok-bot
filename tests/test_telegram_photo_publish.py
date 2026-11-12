@@ -13,7 +13,8 @@ os.environ.setdefault("WORKER_API_SECRET", "test-secret")
 os.environ.setdefault("BOT_TOKEN", "123:test-token")
 os.environ.setdefault("CHANNEL_ID", "@test-channel")
 
-from scripts.process_queue import publish_photos, validate_telegram_photo
+from scripts.process_queue import publish_photos
+from app.photo_validation import validate_telegram_photo
 
 
 class FakeResponse:
@@ -154,6 +155,12 @@ class TelegramPhotoPublishTests(unittest.TestCase):
             else:
                 uploaded.append("single-photo")
         self.assertEqual(len(uploaded), 12)
+        expected_names = [f"{index:03}.jpg" for index in range(1, 13)]
+        actual_names = []
+        for call in post.call_args_list:
+            for _field, file_tuple in call.kwargs["files"]:
+                actual_names.append(file_tuple[0])
+        self.assertEqual(actual_names, expected_names)
         first = json.loads(post.call_args_list[0].kwargs["data"]["media"])
         second = json.loads(post.call_args_list[1].kwargs["data"]["media"])
         self.assertEqual([item["media"] for item in first], [f"attach://photo{i}" for i in range(10)])
