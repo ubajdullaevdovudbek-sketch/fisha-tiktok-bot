@@ -62,6 +62,6 @@ Updated: 2026-11-11
 ## 2026-11-12 continuation: final album offset recovery
 - Found a concrete retry bug in `publish_photos`: validation rejected a saved offset equal to `len(paths)` unless the total photo count was divisible by 10. For albums of 1, 2, 11, 21, etc., the final successful checkpoint could therefore make a retry fail before it reached the no-op completion path (for example, if Worker `/complete` failed after the final Telegram batch was sent).
 - Fixed validation to permit exactly `start_offset == len(paths)`, while still requiring intermediate offsets to align to 10. This lets a fully checkpointed album resume as a no-op without resending images.
-- Added a regression test for 1, 2, 10, 11, and 21 photos: after all batches checkpoint, rerunning from the final offset must not call Telegram again.
+- Added regression coverage for 1, 2, 10, 11, and 21 photos: after all batches checkpoint, rerunning from the final offset must not call Telegram again. Added a process-level test proving a photo-progress persistence error calls `/api/fail` and never calls `/api/complete`.
 - Change is on `feature/fast-photo-carousel-no-daily-cap`; commits: `c964844` (fix), `15b03a6` (regression test). Automated CI for these exact commits is still pending verification; do not report this fix as CI-passed until a run for the new head is confirmed.
 - No production Worker, production D1, secrets, webhook, or Telegram channel was touched.
