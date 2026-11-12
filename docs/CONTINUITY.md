@@ -98,3 +98,6 @@ Updated: 2026-11-11
 - The command warns the owner to check the channel first if the prior send may have succeeded; uncertain delivery must never be blindly resent.
 - Added a Worker unit test that verifies the SQL state guard and reset fields. README command reference updated.
 - CI for this latest code/doc update is running; previous complete run `43174553371` passed both suites on the immediately preceding code head.
+
+- Final CI for the audio retry command and its command-parser guard passed at commit `55e0180ed0c218c9d33e477ad9d2a2e3ae675ac5`: run `43174778676` (both `python-tests` and `worker-tests` successful). The test caught an initial prefix collision because `/retry-audio` also matched `/retry`; the video command now matches only `/retry` or `/retry `, and the audio retry path is separately reachable.
+- `/retry-audio ID` is documented in README. The command only requeues failed audio jobs and clears the prior audio delivery marker; the owner must inspect the channel first if the earlier send may have succeeded.
