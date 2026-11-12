@@ -111,7 +111,7 @@ async function handleTelegram(request, env) {
     return json({ ok: true });
   }
 
-  if (text.startsWith("/retry")) {
+  if (text === "/retry" || text.startsWith("/retry ")) {
     const id = Number(text.split(/\s+/)[1]);
     if (!Number.isInteger(id) || id < 1) {
       await reply(env, chatId, "Использование: /retry ID");
