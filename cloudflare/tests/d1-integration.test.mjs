@@ -119,3 +119,32 @@ test("real Worker + local D1: invalid audio task leaves video processing", async
     await mf.dispose();
   }
 });
+
+
+test("real Worker + local D1: manually prioritized queued video is claimed before older jobs", async () => {
+  const { mf, db } = await setup();
+  try {
+    const older = await db.prepare(
+      "INSERT INTO videos(kind, source_url, status) VALUES('tiktok_url', 'https://tiktok.com/video/older', 'queued')"
+    ).run();
+    const priority = await db.prepare(
+      "INSERT INTO videos(kind, source_url, status, force_publish) VALUES('tiktok_url', 'https://tiktok.com/video/priority', 'queued', 1)"
+    ).run();
+
+    const response = await api(mf, "/api/claim", {});
+    assert.equal(response.status, 200);
+    const payload = await response.json();
+    assert.equal(payload.job.id, priority.meta.last_row_id);
+    assert.notEqual(payload.job.id, older.meta.last_row_id);
+
+    const rows = await db.prepare(
+      "SELECT id, status, force_publish FROM videos ORDER BY id"
+    ).all();
+    const claimed = rows.results.find((row) => row.id === priority.meta.last_row_id);
+    const waiting = rows.results.find((row) => row.id === older.meta.last_row_id);
+    assert.deepEqual(claimed, { id: priority.meta.last_row_id, status: "processing", force_publish: 0 });
+    assert.deepEqual(waiting, { id: older.meta.last_row_id, status: "queued", force_publish: 0 });
+  } finally {
+    await mf.dispose();
+  }
+});
