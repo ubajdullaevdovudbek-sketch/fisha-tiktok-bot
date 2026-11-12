@@ -13,6 +13,15 @@ Personal Telegram bot for collecting TikTok links or uploaded videos and automat
 - Prioritize the next queued item when the owner sends `/publish`; the hosted runner picks it up on its next scheduled run.
 - Publish captions with source attribution.
 
+### Telegram commands
+
+- `/start` — show bot instructions.
+- `/status` — show video queue counts.
+- `/queue` — list queued video/photo jobs, with manually prioritized jobs first.
+- `/publish` — prioritize the oldest queued video/photo job for the next scheduled runner.
+- `/retry ID` — requeue a failed video/photo job after checking the channel if delivery was uncertain.
+- `/retry-audio ID` — requeue a failed optional MP3 job; check the channel first if the prior send may have succeeded.
+
 ## Important constraints
 
 - TikTok metadata and comments are not always available. The most-liked comment is included only when the extractor returns trustworthy comment data.
