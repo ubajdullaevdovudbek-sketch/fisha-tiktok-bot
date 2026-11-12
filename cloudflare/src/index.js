@@ -75,7 +75,7 @@ async function handleTelegram(request, env) {
 
   try {
   if (text === "/start") {
-    await reply(env, chatId, "Бот подключён. Пришли ссылку TikTok или видео. Команды: /status, /queue, /publish, /retry ID");
+    await reply(env, chatId, "Бот подключён. Пришли ссылку TikTok или видео. Команды: /status, /queue, /publish, /retry ID, /retry-audio ID");
     return json({ ok: true });
   }
 
@@ -112,7 +112,7 @@ async function handleTelegram(request, env) {
   }
 
   if (text.startsWith("/retry")) {
-    const id = Number(text.split(/\s+/)[1]);
+    const id = Number(text.split(/\\s+/)[1]);
     if (!Number.isInteger(id) || id < 1) {
       await reply(env, chatId, "Использование: /retry ID");
       return json({ ok: true });
@@ -124,6 +124,22 @@ async function handleTelegram(request, env) {
     await reply(env, chatId, result.meta?.changes
       ? `Видео #${id} возвращено в очередь. Убедись, что предыдущая попытка не опубликовала его.`
       : "Не найдено видео с ошибкой.");
+    return json({ ok: true });
+  }
+
+  if (text.startsWith("/retry-audio")) {
+    const id = Number(text.split(/\\s+/)[1]);
+    if (!Number.isInteger(id) || id < 1) {
+      await reply(env, chatId, "Использование: /retry-audio ID");
+      return json({ ok: true });
+    }
+    const result = await env.DB.prepare(
+      "UPDATE audio_jobs SET status='queued', claimed_at=NULL, audio_started_at=NULL, error=NULL WHERE id=? AND status='failed'"
+    ).bind(id).run();
+    durableSideEffectCommitted = Boolean(result.meta?.changes);
+    await reply(env, chatId, result.meta?.changes
+      ? `Аудиозадание #${id} возвращено в очередь. Если предыдущая отправка могла завершиться, сначала проверь канал.`
+      : "Не найдено аудиозадание с ошибкой.");
     return json({ ok: true });
   }
 
