@@ -195,6 +195,8 @@ def process_one() -> bool:
             caption = str(job.get("source_caption") or "")
 
             delivery_started = False
+            audio_task = None
+
             def mark_delivery_started():
                 nonlocal delivery_started
                 if not delivery_started:
@@ -222,19 +224,22 @@ def process_one() -> bool:
                     final_caption = make_caption(caption, author)
                     publish(path, final_caption, before_send=mark_delivery_started)
                     print(f"Published video #{job_id}")
-                    # Optional MP3 is deliberately post-publication and best-effort.
+                    # Defer optional MP3 until the video job is durably completed.
                     audio_title = caption.strip() or str(metadata.get("title") or "TikTok audio")
-                    publish_audio_best_effort(path, folder, audio_title)
+                    audio_task = (path, audio_title)
             elif job["kind"] == "telegram_file":
                 path = folder / f"telegram_{job_id}.mp4"
                 telegram_file(job["telegram_file_id"], path)
                 publish(path, make_caption(caption, author), before_send=mark_delivery_started)
-                # Preserve the original video-first path; MP3 is optional.
-                publish_audio_best_effort(path, folder, caption.strip() or f"Telegram video {job_id}")
+                # Defer optional MP3 until the video job is durably completed.
+                audio_task = (path, caption.strip() or f"Telegram video {job_id}")
             else:
                 raise RuntimeError(f"Unsupported job type: {job['kind']}")
 
-        api("/api/complete", {"id": job_id})
+            # Mark the primary delivery complete before doing optional audio work.
+            api("/api/complete", {"id": job_id})
+            if audio_task:
+                publish_audio_best_effort(audio_task[0], folder, audio_task[1])
         return True
     except Exception as exc:
         print(f"Job #{job_id} failed; continuing with the next queue item: {exc}")
