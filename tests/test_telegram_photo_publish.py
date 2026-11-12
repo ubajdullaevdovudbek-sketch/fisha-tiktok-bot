@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from PIL import Image
+from PIL import Image, features
 
 # The queue script reads its environment at import time.
 os.environ.setdefault("WORKER_API_URL", "https://worker.example")
@@ -13,7 +13,7 @@ os.environ.setdefault("WORKER_API_SECRET", "test-secret")
 os.environ.setdefault("BOT_TOKEN", "123:test-token")
 os.environ.setdefault("CHANNEL_ID", "@test-channel")
 
-from scripts.process_queue import publish_photos
+from scripts.process_queue import publish_photos, validate_telegram_photo
 
 
 class FakeResponse:
@@ -93,6 +93,19 @@ class TelegramPhotoPublishTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "20:1"):
                 publish_photos([photo], "")
         post.assert_not_called()
+
+    def test_webp_photo_passes_preflight(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            photo = Path(tmp) / "photo.webp"
+            Image.new("RGB", (40, 30), (20, 80, 120)).save(photo, format="WEBP")
+            validate_telegram_photo(photo)
+
+    @unittest.skipUnless(features.check("avif"), "Pillow AVIF codec is unavailable")
+    def test_avif_photo_passes_preflight(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            photo = Path(tmp) / "photo.avif"
+            Image.new("RGB", (40, 30), (20, 80, 120)).save(photo, format="AVIF")
+            validate_telegram_photo(photo)
 
     @patch("scripts.process_queue.requests.post", return_value=FakeResponse())
     def test_corrupt_image_rejected_before_upload(self, post):
