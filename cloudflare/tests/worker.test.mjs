@@ -459,3 +459,68 @@ test("reply failure after queue insertion keeps the webhook dedupe key", async (
     globalThis.fetch = originalFetch;
   }
 });
+
+test("publish reply failure keeps webhook dedupe key and prevents applying publish twice", async () => {
+  const updateIds = new Set();
+  let publishUpdates = 0;
+  let dedupeDeletes = 0;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(
+    JSON.stringify({ ok: false, description: "temporary Telegram failure" }),
+    { status: 200, headers: { "content-type": "application/json" } },
+  );
+
+  const env = {
+    TELEGRAM_WEBHOOK_SECRET: "webhook-secret",
+    OWNER_ID: "100",
+    DB: {
+      prepare(sql) {
+        let values = [];
+        return {
+          bind(...args) { values = args; return this; },
+          async run() {
+            if (sql.startsWith("INSERT OR IGNORE INTO webhook_updates")) {
+              const [updateId] = values;
+              if (updateIds.has(updateId)) return { meta: { changes: 0 } };
+              updateIds.add(updateId);
+              return { meta: { changes: 1 } };
+            }
+            if (sql.startsWith("DELETE FROM webhook_updates WHERE update_id=?")) {
+              dedupeDeletes += 1;
+              updateIds.delete(values[0]);
+              return { meta: { changes: 1 } };
+            }
+            if (sql.includes("SET force_publish=1")) {
+              publishUpdates += 1;
+              return { meta: { changes: 1 } };
+            }
+            return { meta: { changes: 1 } };
+          },
+        };
+      },
+    },
+  };
+
+  const makeRequest = () => new Request("https://example.test/telegram/webhook", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "X-Telegram-Bot-Api-Secret-Token": "webhook-secret",
+    },
+    body: JSON.stringify({
+      update_id: 127,
+      message: { chat: { id: 100 }, from: { id: 100 }, text: "/publish" },
+    }),
+  });
+
+  try {
+    await assert.rejects(worker.fetch(makeRequest(), env), /Telegram API sendMessage/);
+    const retryResponse = await worker.fetch(makeRequest(), env);
+    assert.equal(retryResponse.status, 200);
+    assert.deepEqual(await retryResponse.json(), { ok: true, duplicate: true });
+    assert.equal(publishUpdates, 1);
+    assert.equal(dedupeDeletes, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
