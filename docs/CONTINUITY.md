@@ -49,3 +49,10 @@ Updated: 2026-11-11
 4. Keep video fast path first; don't add music extraction until video and photo flows are stable.
 5. Audio extraction remains a separate third-priority feature.
 6. Review full diff before asking user for explicit approval to merge/deploy.
+
+
+### Duplicate-publication protection
+- Jobs transition from `processing` to `publishing` immediately before the first Telegram send. Only stale `processing` jobs are automatically requeued.
+- A stale `publishing` job becomes `uncertain` and is not automatically retried. Check the Telegram channel before using `/retry ID`.
+- `/api/complete` accepts only `publishing` jobs. `/api/fail` accepts `processing` and `publishing` jobs.
+- This narrows the duplicate window but cannot eliminate the tiny crash window between Telegram accepting a message and the runner receiving/storing the response.
