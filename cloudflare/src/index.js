@@ -109,7 +109,7 @@ async function handleTelegram(request, env) {
       return json({ ok: true });
     }
     const result = await env.DB.prepare(
-      "UPDATE videos SET status='queued', error=NULL WHERE id=? AND status='failed'"
+      "UPDATE videos SET status='queued', claimed_at=NULL, publishing_started_at=NULL, error=NULL WHERE id=? AND status='failed'"
     ).bind(id).run();
     await reply(env, chatId, result.meta?.changes
       ? `Видео #${id} возвращено в очередь. Убедись, что предыдущая попытка не опубликовала его.`
