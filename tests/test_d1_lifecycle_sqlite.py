@@ -65,6 +65,7 @@ class D1LifecycleSqliteTests(unittest.TestCase):
             "INSERT INTO videos(id, kind, telegram_file_id, status) "
             "VALUES(2, 'telegram_file', 'file-id', 'processing')"
         )
+        self.db.commit()
         try:
             with self.db:
                 self.db.execute(
