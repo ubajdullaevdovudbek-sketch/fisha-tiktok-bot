@@ -141,7 +141,8 @@ def publish_photos(paths: list[Path], caption: str, before_send=None,
                    start_offset: int = 0, after_batch=None):
     if not paths:
         raise RuntimeError("No photos to publish")
-    if start_offset < 0 or start_offset > len(paths) or start_offset % 10:
+    if (start_offset < 0 or start_offset > len(paths) or
+            (start_offset != len(paths) and start_offset % 10)):
         raise RuntimeError(f"Invalid saved photo album offset: {start_offset}")
     # Preflight every image before sending anything, avoiding partial albums
     # caused by a later file violating Telegram's upload constraints.
