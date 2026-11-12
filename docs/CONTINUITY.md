@@ -58,3 +58,10 @@ Updated: 2026-11-11
 - `/api/complete` and `/api/fail` accept only jobs still in `processing`. If delivery had started, failures are marked as uncertain.
 - Before using `/retry ID`, manually check the Telegram channel to confirm whether the post appeared. A verified manual retry clears the old `claimed_at` and `publishing_started_at` values so the previous delivery marker cannot immediately classify the new attempt as stale/uncertain.
 - This protection narrows the duplicate window but cannot eliminate the tiny crash window between Telegram accepting a message and the runner receiving/storing the response.
+
+## 2026-11-12 continuation: final album offset recovery
+- Found a concrete retry bug in `publish_photos`: validation rejected a saved offset equal to `len(paths)` unless the total photo count was divisible by 10. For albums of 1, 2, 11, 21, etc., the final successful checkpoint could therefore make a retry fail before it reached the no-op completion path (for example, if Worker `/complete` failed after the final Telegram batch was sent).
+- Fixed validation to permit exactly `start_offset == len(paths)`, while still requiring intermediate offsets to align to 10. This lets a fully checkpointed album resume as a no-op without resending images.
+- Added a regression test for 1, 2, 10, 11, and 21 photos: after all batches checkpoint, rerunning from the final offset must not call Telegram again.
+- Change is on `feature/fast-photo-carousel-no-daily-cap`; commits: `c964844` (fix), `15b03a6` (regression test). Automated CI for these exact commits is still pending verification; do not report this fix as CI-passed until a run for the new head is confirmed.
+- No production Worker, production D1, secrets, webhook, or Telegram channel was touched.
