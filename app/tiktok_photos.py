@@ -35,11 +35,16 @@ def resolve_tiktok_url(url: str) -> str:
 
 
 def is_tiktok_photo_url(url: str) -> bool:
-    return "/photo/" in urlparse(url).path
+    parsed = urlparse(url)
+    host = (parsed.hostname or "").lower()
+    is_tiktok_host = host == "tiktok.com" or host.endswith(".tiktok.com")
+    return parsed.scheme == "https" and is_tiktok_host and "/photo/" in parsed.path
 
 
 def download_tiktok_photos(url: str, target_dir: Path) -> list[Path]:
     """Download every image from a public TikTok Photo Mode post in slide order."""
+    if not is_tiktok_photo_url(url):
+        raise TikTokPhotoDownloadError("Expected an HTTPS TikTok Photo Mode URL")
     target_dir.mkdir(parents=True, exist_ok=True)
     command = [
         "gallery-dl",
