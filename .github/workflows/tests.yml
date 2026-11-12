@@ -30,4 +30,4 @@ jobs:
         run: npm install --no-save miniflare@^3
       - name: Test Worker access controls and local D1 integration
         working-directory: cloudflare
-        run: node --test tests/*.test.mjs
+        run: timeout --signal=TERM --kill-after=15s 180s node --test --test-concurrency=1 tests/*.test.mjs
