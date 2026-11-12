@@ -1,4 +1,5 @@
 import subprocess
+import time
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -6,6 +7,17 @@ import requests
 
 
 PHOTO_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".avif"}
+MAX_DOWNLOAD_ATTEMPTS = 3
+PERMANENT_ERROR_MARKERS = (
+    "private", "deleted", "not found", "unavailable", "login",
+    "unauthorized", "forbidden", "http error 401", "http error 403",
+    "http error 404", "status code 401", "status code 403", "status code 404",
+)
+
+
+class TikTokPhotoDownloadError(RuntimeError):
+    """A TikTok Photo Mode download failed with a user-actionable explanation."""
+
 
 
 def resolve_tiktok_url(url: str) -> str:
@@ -42,21 +54,41 @@ def download_tiktok_photos(url: str, target_dir: Path) -> list[Path]:
         "-o", "extractor.tiktok.videos=false",
         url,
     ]
-    result = subprocess.run(
-        command,
-        capture_output=True,
-        text=True,
-        timeout=180,
-        check=False,
-    )
-    if result.returncode:
-        detail = (result.stderr or result.stdout or "gallery-dl failed").strip()
-        raise RuntimeError(f"TikTok photo download failed: {detail[-700:]}")
+    last_error = "gallery-dl failed"
+    for attempt in range(1, MAX_DOWNLOAD_ATTEMPTS + 1):
+        try:
+            result = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                timeout=180,
+                check=False,
+            )
+        except subprocess.TimeoutExpired:
+            last_error = "download timed out after 180 seconds"
+        else:
+            if result.returncode == 0:
+                break
+            detail = (result.stderr or result.stdout or "gallery-dl failed").strip()
+            last_error = detail[-700:]
+            lowered = last_error.lower()
+            if any(marker in lowered for marker in PERMANENT_ERROR_MARKERS):
+                raise TikTokPhotoDownloadError(
+                    f"TikTok post is private, deleted, unavailable, or requires login: {last_error}"
+                )
+        if attempt < MAX_DOWNLOAD_ATTEMPTS:
+            # Retry transient network/rate-limit/server failures; do not retry
+            # known permanent access errors such as private or deleted posts.
+            time.sleep(attempt)
+    else:
+        raise TikTokPhotoDownloadError(
+            f"TikTok photo download failed after {MAX_DOWNLOAD_ATTEMPTS} attempts: {last_error}"
+        )
     photos = [
         path for path in target_dir.iterdir()
         if path.is_file() and path.suffix.lower() in PHOTO_EXTENSIONS
     ]
     photos.sort(key=lambda path: (int(path.stem) if path.stem.isdigit() else 10**9, path.name))
     if not photos:
-        raise RuntimeError("TikTok Photo Mode returned no images")
+        raise TikTokPhotoDownloadError("TikTok Photo Mode returned no images; the post may be unavailable or contain no downloadable slides")
     return photos
