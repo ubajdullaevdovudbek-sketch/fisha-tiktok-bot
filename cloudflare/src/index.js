@@ -212,7 +212,10 @@ async function api(request, env, path) {
 
   if (path === "/api/audio/claim" && request.method === "POST") {
     await env.DB.prepare(
-      "UPDATE audio_jobs SET status='queued', claimed_at=NULL WHERE status='processing' AND claimed_at IS NOT NULL AND julianday(claimed_at) < julianday('now', '-20 minutes')"
+      "UPDATE audio_jobs SET status='queued', claimed_at=NULL WHERE status='processing' AND audio_started_at IS NULL AND claimed_at IS NOT NULL AND julianday(claimed_at) < julianday('now', '-20 minutes')"
+    ).run();
+    await env.DB.prepare(
+      "UPDATE audio_jobs SET status='failed', claimed_at=NULL, error='UNCERTAIN DELIVERY: audio send started but runner stopped; check the channel before manual retry' WHERE status='processing' AND audio_started_at IS NOT NULL AND julianday(audio_started_at) < julianday('now', '-20 minutes')"
     ).run();
     const candidate = await env.DB.prepare(
       "SELECT * FROM audio_jobs WHERE status='queued' ORDER BY id LIMIT 1"
@@ -223,6 +226,17 @@ async function api(request, env, path) {
     ).bind(candidate.id).run();
     if (!changed.meta?.changes) return new Response(null, { status: 204 });
     return json({ job: candidate });
+  }
+
+  if (path === "/api/audio/started" && request.method === "POST") {
+    const body = await request.json();
+    const id = Number(body.id);
+    if (!Number.isSafeInteger(id) || id < 1) return json({ ok: false, error: "Invalid audio job ID" }, 400);
+    const result = await env.DB.prepare(
+      "UPDATE audio_jobs SET audio_started_at=COALESCE(audio_started_at, strftime('%Y-%m-%dT%H:%M:%fZ','now')) WHERE id=? AND status='processing'"
+    ).bind(id).run();
+    if (!result.meta?.changes) return json({ ok: false, error: "Audio job is not processing" }, 409);
+    return json({ ok: true });
   }
 
   if (path === "/api/audio/complete" && request.method === "POST") {
@@ -241,8 +255,8 @@ async function api(request, env, path) {
     const id = Number(body.id);
     if (!Number.isSafeInteger(id) || id < 1) return json({ ok: false, error: "Invalid audio job ID" }, 400);
     const result = await env.DB.prepare(
-      "UPDATE audio_jobs SET status='failed', claimed_at=NULL, error=? WHERE id=? AND status='processing'"
-    ).bind(String(body.error || "Unknown audio error").slice(0, 500), id).run();
+      "UPDATE audio_jobs SET status='failed', claimed_at=NULL, error=CASE WHEN audio_started_at IS NOT NULL THEN 'UNCERTAIN DELIVERY: ' || ? ELSE ? END WHERE id=? AND status='processing'"
+    ).bind(String(body.error || "Unknown audio error").slice(0, 450), String(body.error || "Unknown audio error").slice(0, 500), id).run();
     if (!result.meta?.changes) return json({ ok: false, error: "Audio job is not processing" }, 409);
     return json({ ok: true });
   }
