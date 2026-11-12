@@ -22,7 +22,7 @@ Updated: 2026-11-11
 - Cloudflare Worker scheduling gate was removed on this branch only; main remains unchanged.
 - `.github/workflows/publish.yml` runs every 5 minutes and sets `MAX_JOBS_PER_RUN=5`.
 - `scripts/process_queue.py` processes up to 5 queue jobs per workflow run (clamped 1..10) using `app/queue_runner.py`.
-- Batch runner has tests for batch limit, empty queue, upper clamp, and propagating errors.
+- Batch runner has tests for batch limit, empty queue, upper clamp, and aborting on claim/API errors. Once a job is claimed, processing errors are marked failed and the batch continues to the next job.
 - Added `gallery-dl>=1.32.19,<2` to requirements.
 - Added `app/tiktok_photos.py`: resolves TikTok short URLs; detects canonical `/photo/` paths; calls gallery-dl with TikTok photo downloads explicitly enabled and audio, video, and covers disabled; sorts downloaded images by slide number.
 - Review against gallery-dl documentation found that the filename template used space-padding (`{num:>03}`), which could defeat numeric filename sorting. Changed it to zero-padding (`{num:03}`) and added a test assertion. gallery-dl documents TikTok `photos`, `audio`, and `videos` options; its TikTok filename metadata includes `num`.
@@ -38,7 +38,7 @@ Updated: 2026-11-11
 - No real TikTok link download has been validated in this environment.
 - No Telegram API call, live queue processing, channel post, Cloudflare deployment, or merge has been performed.
 - Workflow cron remains every 5 minutes; batch processing improves throughput but does not make queue pickup instant.
-- The queue processor stops its current run if a job raises an error after being marked failed; later jobs wait for next scheduled run.
+- Per-job processing failures are marked failed and do not stop the current batch; later claimed jobs continue within the configured run limit. Queue claim/API failures still abort the run to avoid repeated failing claims.
 - Short-link preflight failure falls back to yt-dlp directly to protect video handling.
 
 ## Known gaps / next steps
