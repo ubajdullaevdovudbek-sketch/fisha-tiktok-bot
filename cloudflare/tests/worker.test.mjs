@@ -283,3 +283,57 @@ test("claim recovers stale processing jobs differently before and after delivery
   assert.match(statements[1], /status='failed'/);
   assert.match(statements[1], /UNCERTAIN DELIVERY/);
 });
+
+
+test("webhook retention cleanup failure does not drop a new owner message", async () => {
+  let inserted = 0;
+  let queued = 0;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify({ ok: true, result: {} }), {
+    status: 200,
+    headers: { "content-type": "application/json" },
+  });
+  const env = {
+    TELEGRAM_WEBHOOK_SECRET: "webhook-secret",
+    OWNER_ID: "100",
+    DB: {
+      prepare(sql) {
+        return {
+          bind() { return this; },
+          async run() {
+            if (sql.startsWith("INSERT OR IGNORE INTO webhook_updates")) {
+              inserted += 1;
+              return { meta: { changes: 1 } };
+            }
+            if (sql.startsWith("DELETE FROM webhook_updates")) {
+              throw new Error("temporary cleanup failure");
+            }
+            if (sql.startsWith("INSERT INTO videos")) queued += 1;
+            return { meta: { changes: 1 } };
+          },
+        };
+      },
+    },
+  };
+  try {
+    const response = await worker.fetch(
+      new Request("https://example.test/telegram/webhook", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "X-Telegram-Bot-Api-Secret-Token": "webhook-secret",
+        },
+        body: JSON.stringify({
+          update_id: 124,
+          message: { chat: { id: 100 }, from: { id: 100 }, text: "https://www.tiktok.com/@demo/video/123" },
+        }),
+      }),
+      env,
+    );
+    assert.equal(response.status, 200);
+    assert.equal(inserted, 1);
+    assert.equal(queued, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
