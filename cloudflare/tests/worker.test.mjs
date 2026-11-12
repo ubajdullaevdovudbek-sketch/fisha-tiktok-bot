@@ -337,3 +337,39 @@ test("webhook retention cleanup failure does not drop a new owner message", asyn
     globalThis.fetch = originalFetch;
   }
 });
+
+
+test("failure after delivery starts is explicitly marked as uncertain", async () => {
+  let sqlSeen = "";
+  let values = [];
+  const env = {
+    WORKER_API_SECRET: "worker-secret",
+    DB: {
+      prepare(sql) {
+        sqlSeen = sql;
+        return {
+          bind(...args) { values = args; return this; },
+          async run() { return { meta: { changes: 1 } }; },
+        };
+      },
+    },
+  };
+  const response = await worker.fetch(
+    new Request("https://example.test/api/fail", {
+      method: "POST",
+      headers: { Authorization: "Bearer worker-secret", "content-type": "application/json" },
+      body: JSON.stringify({ id: 17, error: "Telegram connection timed out" }),
+    }),
+    env,
+  );
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { ok: true });
+  assert.match(sqlSeen, /publishing_started_at IS NOT NULL/);
+  assert.match(sqlSeen, /UNCERTAIN DELIVERY:/);
+  assert.match(sqlSeen, /status='processing'/);
+  assert.deepEqual(values, [
+    "Telegram connection timed out",
+    "Telegram connection timed out",
+    17,
+  ]);
+});
