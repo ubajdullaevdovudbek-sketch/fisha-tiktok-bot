@@ -106,7 +106,7 @@ async function handleTelegram(request, env) {
     ).run();
     durableSideEffectCommitted = Boolean(result.meta?.changes);
     await reply(env, chatId, result.meta?.changes
-      ? "Для следующего видео включена внеочередная публикация."
+      ? "Следующее задание поднято в начало очереди. Обработчик заберёт его при ближайшем запуске GitHub Actions; расписание может задержаться."
       : "Очередь пуста.");
     return json({ ok: true });
   }
