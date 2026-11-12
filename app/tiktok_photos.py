@@ -9,7 +9,7 @@ import requests
 PHOTO_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".avif"}
 MAX_DOWNLOAD_ATTEMPTS = 3
 PERMANENT_ERROR_MARKERS = (
-    "private", "deleted", "not found", "unavailable", "login",
+    "private", "deleted", "not found", "item is unavailable", "video unavailable", "post unavailable", "login",
     "unauthorized", "forbidden", "http error 401", "http error 403",
     "http error 404", "status code 401", "status code 403", "status code 404",
 )
