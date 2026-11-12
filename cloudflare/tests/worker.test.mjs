@@ -248,6 +248,9 @@ test("manual retry clears the old delivery marker and claim timestamp", async ()
     assert.match(sqlSeen, /claimed_at=NULL/);
     assert.match(sqlSeen, /publishing_started_at=NULL/);
     assert.match(sqlSeen, /status='failed'/);
+    // Keep album_next_offset intact: a manually approved retry must resume
+    // from the last confirmed batch, not resend the entire carousel.
+    assert.doesNotMatch(sqlSeen, /album_next_offset\s*=\s*0/);
     assert.deepEqual(values, [17]);
   } finally {
     globalThis.fetch = originalFetch;
