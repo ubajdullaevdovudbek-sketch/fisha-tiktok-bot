@@ -26,7 +26,10 @@ def api(path, payload=None):
     if response.status_code == 204:
         return None
     response.raise_for_status()
-    return response.json()
+    data = response.json()
+    if isinstance(data, dict) and data.get("ok") is False:
+        raise RuntimeError(data.get("error", f"Worker API {path} failed"))
+    return data
 
 
 def download_telegram_file(file_id, target):
@@ -71,9 +74,11 @@ def download_video(job, folder):
     raise FileNotFoundError("Downloaded video for audio extraction was not found")
 
 
-def send_audio(path, title):
+def send_audio(path, title, before_send=None):
     if path.stat().st_size > 50 * 1024 * 1024:
         raise RuntimeError("Extracted MP3 exceeds Telegram's 50 MB audio limit")
+    if before_send:
+        before_send()
     with path.open("rb") as audio:
         response = requests.post(
             f"https://api.telegram.org/bot{BOT_TOKEN}/sendAudio",
@@ -98,6 +103,7 @@ def process_one():
             folder = Path(tmp)
             video = download_video(job, folder)
             mp3 = extract_audio_mp3(video, folder / "audio.mp3")
+            api("/api/audio/started", {"id": job_id})
             send_audio(mp3, job.get("title") or "TikTok audio")
         api("/api/audio/complete", {"id": job_id})
         print(f"Completed audio job #{job_id}")
