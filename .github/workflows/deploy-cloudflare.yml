@@ -8,6 +8,8 @@ permissions:
 
 jobs:
   deploy:
+    # Production deployment is deliberately restricted to the protected release branch.
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
