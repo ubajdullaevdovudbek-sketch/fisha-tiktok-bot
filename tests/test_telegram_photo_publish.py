@@ -5,6 +5,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from PIL import Image
+
 # The queue script reads its environment at import time.
 os.environ.setdefault("WORKER_API_URL", "https://worker.example")
 os.environ.setdefault("WORKER_API_SECRET", "test-secret")
