@@ -175,34 +175,40 @@ async function handleTelegram(request, env) {
   }
 
   if (text === "/retry" || text.startsWith("/retry ")) {
-    const id = Number(text.split(/\s+/)[1]);
-    if (!Number.isInteger(id) || id < 1) {
-      await reply(env, chatId, "Использование: /retry ID");
+    const parts = text.split(/\\s+/);
+    const id = Number(parts[1]);
+    const confirmUncertain = parts[2]?.toUpperCase() === "CONFIRM";
+    if (!Number.isInteger(id) || id < 1 || parts.length > 3 ||
+        (parts.length === 3 && !confirmUncertain)) {
+      await reply(env, chatId, "Использование: /retry ID [CONFIRM]. CONFIRM нужен только для UNCERTAIN DELIVERY после проверки канала.");
       return json({ ok: true });
     }
     const result = await env.DB.prepare(
-      "UPDATE videos SET status='queued', claimed_at=NULL, publishing_started_at=NULL, error=NULL WHERE id=? AND status='failed'"
-    ).bind(id).run();
+      "UPDATE videos SET status='queued', claimed_at=NULL, publishing_started_at=NULL, error=NULL WHERE id=? AND status='failed' AND (error IS NULL OR error NOT LIKE 'UNCERTAIN DELIVERY:%' OR ?=1)"
+    ).bind(id, confirmUncertain ? 1 : 0).run();
     durableSideEffectCommitted = Boolean(result.meta?.changes);
     await reply(env, chatId, result.meta?.changes
-      ? `Видео #${id} возвращено в очередь. Убедись, что предыдущая попытка не опубликовала его.`
-      : "Не найдено видео с ошибкой.");
+      ? `Видео #${id} возвращено в очередь.`
+      : "Обычная ошибка не найдена. Если это UNCERTAIN DELIVERY, сначала проверь канал, затем используй /retry ID CONFIRM.");
     return json({ ok: true });
   }
 
-  if (text.startsWith("/retry-audio")) {
-    const id = Number(text.split(/\s+/)[1]);
-    if (!Number.isInteger(id) || id < 1) {
-      await reply(env, chatId, "Использование: /retry-audio ID");
+  if (text === "/retry-audio" || text.startsWith("/retry-audio ")) {
+    const parts = text.split(/\\s+/);
+    const id = Number(parts[1]);
+    const confirmUncertain = parts[2]?.toUpperCase() === "CONFIRM";
+    if (!Number.isInteger(id) || id < 1 || parts.length > 3 ||
+        (parts.length === 3 && !confirmUncertain)) {
+      await reply(env, chatId, "Использование: /retry-audio ID [CONFIRM]. CONFIRM нужен только для UNCERTAIN DELIVERY после проверки канала.");
       return json({ ok: true });
     }
     const result = await env.DB.prepare(
-      "UPDATE audio_jobs SET status='queued', claimed_at=NULL, audio_started_at=NULL, error=NULL WHERE id=? AND status='failed'"
-    ).bind(id).run();
+      "UPDATE audio_jobs SET status='queued', claimed_at=NULL, audio_started_at=NULL, error=NULL WHERE id=? AND status='failed' AND (error IS NULL OR error NOT LIKE 'UNCERTAIN DELIVERY:%' OR ?=1)"
+    ).bind(id, confirmUncertain ? 1 : 0).run();
     durableSideEffectCommitted = Boolean(result.meta?.changes);
     await reply(env, chatId, result.meta?.changes
-      ? `Аудиозадание #${id} возвращено в очередь. Если предыдущая отправка могла завершиться, сначала проверь канал.`
-      : "Не найдено аудиозадание с ошибкой.");
+      ? `Аудиозадание #${id} возвращено в очередь.`
+      : "Обычная ошибка не найдена. Если это UNCERTAIN DELIVERY, сначала проверь канал, затем используй /retry-audio ID CONFIRM.");
     return json({ ok: true });
   }
 
