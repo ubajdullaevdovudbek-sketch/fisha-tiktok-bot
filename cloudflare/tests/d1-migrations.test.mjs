@@ -9,6 +9,7 @@ const migrationFiles = [
   "0002_delivery_uncertain.sql",
   "0003_audio_jobs.sql",
   "0004_photo_album_progress.sql",
+  "0005_photo_batch_reconciliation.sql",
 ].map((name) => new URL(`../migrations/${name}`, import.meta.url));
 
 async function runSql(db, file) {
@@ -56,13 +57,14 @@ test("ordered migrations on a legacy D1 keep the existing video and add the new 
     const before = await columnNames(db, "videos");
     assert.ok(!before.includes("publishing_started_at"));
     assert.ok(!before.includes("album_next_offset"));
+    assert.ok(!before.includes("album_pending_offset"));
 
     for (const file of migrationFiles) await runSql(db, file);
 
     const video = await db
       .prepare(
         "SELECT id, kind, source_url, status, source_author, source_caption, " +
-          "publishing_started_at, album_next_offset FROM videos WHERE id=41"
+          "publishing_started_at, album_next_offset, album_pending_offset, album_total_count FROM videos WHERE id=41"
       )
       .first();
     assert.deepEqual(video, {
@@ -74,11 +76,15 @@ test("ordered migrations on a legacy D1 keep the existing video and add the new 
       source_caption: "existing caption",
       publishing_started_at: null,
       album_next_offset: 0,
+      album_pending_offset: null,
+      album_total_count: null,
     });
 
     const after = await columnNames(db, "videos");
     assert.ok(after.includes("publishing_started_at"));
     assert.ok(after.includes("album_next_offset"));
+    assert.ok(after.includes("album_pending_offset"));
+    assert.ok(after.includes("album_total_count"));
     assert.equal((await columnNames(db, "audio_jobs")).length, 12);
 
     const { results: indexes } = await db.prepare("PRAGMA index_list(audio_jobs)").all();
@@ -121,6 +127,7 @@ test("re-running an ALTER migration fails instead of silently duplicating a colu
     for (const file of migrationFiles) await runSql(db, file);
     await assert.rejects(runSql(db, migrationFiles[0]), /duplicate column/i);
     await assert.rejects(runSql(db, migrationFiles[2]), /duplicate column/i);
+    await assert.rejects(runSql(db, migrationFiles[3]), /duplicate column/i);
   } finally {
     await mf.dispose();
   }
@@ -134,18 +141,25 @@ test("Worker photo checkpoint endpoint works on a migrated legacy D1", async () 
       .prepare("UPDATE videos SET status='processing' WHERE id=41")
       .run();
 
+    const start = await mf.dispatchFetch("https://worker.test/api/photo-batch-start", {
+      method: "POST",
+      headers: { Authorization: "Bearer integration-test-secret", "content-type": "application/json" },
+      body: JSON.stringify({ id: 41, offset: 0, total_count: 17 }),
+    });
+    assert.equal(start.status, 200);
+
     const response = await mf.dispatchFetch("https://worker.test/api/photo-progress", {
       method: "POST",
       headers: {
         Authorization: "Bearer integration-test-secret",
         "content-type": "application/json",
       },
-      body: JSON.stringify({ id: 41, next_offset: 7 }),
+      body: JSON.stringify({ id: 41, next_offset: 10 }),
     });
     assert.equal(response.status, 200);
 
     const row = await db.prepare("SELECT album_next_offset FROM videos WHERE id=41").first();
-    assert.equal(row.album_next_offset, 7);
+    assert.equal(row.album_next_offset, 10);
   } finally {
     await mf.dispose();
   }
