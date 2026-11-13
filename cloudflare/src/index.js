@@ -174,6 +174,40 @@ async function handleTelegram(request, env) {
     return json({ ok: true });
   }
 
+  if (text === "/retry-photo" || text.startsWith("/retry-photo ")) {
+    const parts = text.split(/\\s+/);
+    const id = Number(parts[1]);
+    const confirm = parts[2]?.toUpperCase() === "CONFIRM";
+    const nextOffset = Number(parts[3]);
+    if (!Number.isSafeInteger(id) || id < 1 || !confirm ||
+        !Number.isSafeInteger(nextOffset) || nextOffset < 0 || parts.length !== 4) {
+      await reply(env, chatId, "Использование: /retry-photo ID CONFIRM NEXT_OFFSET. Сначала проверь канал. NEXT_OFFSET — начало спорной группы (повторить её) или следующий блок после неё (пропустить её).");
+      return json({ ok: true });
+    }
+    const job = await env.DB.prepare(
+      "SELECT album_pending_offset, album_total_count FROM videos WHERE id=? AND status='failed' AND kind='tiktok_url' AND error LIKE 'UNCERTAIN DELIVERY:%'"
+    ).bind(id).first();
+    if (!job || job.album_pending_offset == null || job.album_total_count == null) {
+      await reply(env, chatId, "Не найдено Photo Mode-задание с неясной отправкой. Проверь ID и статус.");
+      return json({ ok: true });
+    }
+    const pending = Number(job.album_pending_offset);
+    const total = Number(job.album_total_count);
+    const nextAfterBatch = Math.min(pending + 10, total);
+    if (nextOffset !== pending && nextOffset !== nextAfterBatch) {
+      await reply(env, chatId, `Допустимы только ${pending} (повторить спорную группу) или ${nextAfterBatch} (пропустить её). Всего фото: ${total}.`);
+      return json({ ok: true });
+    }
+    const result = await env.DB.prepare(
+      "UPDATE videos SET status='queued', claimed_at=NULL, publishing_started_at=NULL, album_next_offset=?, album_pending_offset=NULL, error=NULL WHERE id=? AND status='failed' AND album_pending_offset=? AND album_total_count=?"
+    ).bind(nextOffset, id, pending, total).run();
+    durableSideEffectCommitted = Boolean(result.meta?.changes);
+    await reply(env, chatId, result.meta?.changes
+      ? `Photo Mode #${id} возвращён в очередь с изображения ${nextOffset + 1} из ${total}.`
+      : "Состояние задания изменилось. Обнови /status и проверь задание перед повтором.");
+    return json({ ok: true });
+  }
+
   if (text === "/retry" || text.startsWith("/retry ")) {
     const parts = text.split(/\s+/);
     const id = Number(parts[1]);
@@ -184,12 +218,12 @@ async function handleTelegram(request, env) {
       return json({ ok: true });
     }
     const result = await env.DB.prepare(
-      "UPDATE videos SET status='queued', claimed_at=NULL, publishing_started_at=NULL, error=NULL WHERE id=? AND status='failed' AND (error IS NULL OR error NOT LIKE 'UNCERTAIN DELIVERY:%' OR ?=1)"
+      "UPDATE videos SET status='queued', claimed_at=NULL, publishing_started_at=NULL, error=NULL WHERE id=? AND status='failed' AND album_pending_offset IS NULL AND (error IS NULL OR error NOT LIKE 'UNCERTAIN DELIVERY:%' OR ?=1)"
     ).bind(id, confirmUncertain ? 1 : 0).run();
     durableSideEffectCommitted = Boolean(result.meta?.changes);
     await reply(env, chatId, result.meta?.changes
       ? `Видео #${id} возвращено в очередь.`
-      : "Обычная ошибка не найдена. Если это UNCERTAIN DELIVERY, сначала проверь канал, затем используй /retry ID CONFIRM.");
+      : "Обычная ошибка не найдена. Для Photo Mode с неясной группой используй /retry-photo ID CONFIRM NEXT_OFFSET после проверки канала; для остальных UNCERTAIN DELIVERY — /retry ID CONFIRM.");
     return json({ ok: true });
   }
 
@@ -362,6 +396,23 @@ async function api(request, env, path) {
     return job ? json({ job }) : new Response(null, { status: 204 });
   }
 
+  if (path === "/api/photo-batch-start" && request.method === "POST") {
+    const body = await request.json();
+    const id = Number(body.id);
+    const offset = Number(body.offset);
+    const total = Number(body.total_count);
+    if (!Number.isSafeInteger(id) || id < 1 ||
+        !Number.isSafeInteger(offset) || offset < 0 || offset % 10 !== 0 ||
+        !Number.isSafeInteger(total) || total < 1 || offset >= total) {
+      return json({ ok: false, error: "Invalid photo batch start" }, 400);
+    }
+    const result = await env.DB.prepare(
+      "UPDATE videos SET album_pending_offset=?, album_total_count=?, publishing_started_at=COALESCE(publishing_started_at, strftime('%Y-%m-%dT%H:%M:%fZ','now')) WHERE id=? AND status='processing' AND kind='tiktok_url' AND album_pending_offset IS NULL AND album_next_offset=? AND (album_total_count IS NULL OR album_total_count=?)"
+    ).bind(offset, total, id, offset, total).run();
+    if (!result.meta?.changes) return json({ ok: false, error: "Photo batch state conflict" }, 409);
+    return json({ ok: true, pending_offset: offset, total_count: total });
+  }
+
   if (path === "/api/photo-progress" && request.method === "POST") {
     const body = await request.json();
     const id = Number(body.id);
@@ -371,8 +422,8 @@ async function api(request, env, path) {
       return json({ ok: false, error: "Invalid photo progress" }, 400);
     }
     const result = await env.DB.prepare(
-      "UPDATE videos SET album_next_offset=MAX(album_next_offset, ?) WHERE id=? AND status='processing' AND kind='tiktok_url'"
-    ).bind(nextOffset, id).run();
+      "UPDATE videos SET album_next_offset=MAX(album_next_offset, ?), album_pending_offset=NULL WHERE id=? AND status='processing' AND kind='tiktok_url' AND album_pending_offset IS NOT NULL AND ? > album_pending_offset AND ? <= album_total_count"
+    ).bind(nextOffset, id, nextOffset, nextOffset).run();
     if (!result.meta?.changes) return json({ ok: false, error: "Photo job is not processing" }, 409);
     return json({ ok: true, next_offset: nextOffset });
   }
