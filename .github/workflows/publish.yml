@@ -14,7 +14,7 @@ concurrency:
 jobs:
   publish-queue:
     # This workflow publishes to the live Telegram channel; never run it from feature branches.
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && vars.ENABLE_PRODUCTION_PUBLISH == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
