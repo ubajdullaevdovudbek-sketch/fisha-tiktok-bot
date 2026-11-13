@@ -680,7 +680,7 @@ test("Photo Mode batch start is persisted before a Telegram request can happen",
     body: JSON.stringify({ id: 17, offset: 10, total_count: 23 }),
   }), env);
   assert.equal(response.status, 200);
-  assert.match(sqlSeen, /album_pending_offset=\\?/);
+  assert.match(sqlSeen, /album_pending_offset=\?/);
   assert.match(sqlSeen, /publishing_started_at=COALESCE/);
   assert.deepEqual(values, [10, 23, 17, 10, 23]);
 });
@@ -719,7 +719,7 @@ test("Photo Mode progress advances and clears the in-flight marker only after su
   }), env);
   assert.equal(response.status, 200);
   assert.match(sqlSeen, /album_pending_offset=NULL/);
-  assert.match(sqlSeen, /\\? > album_pending_offset/);
+  assert.match(sqlSeen, /\? > album_pending_offset/);
   assert.deepEqual(values, [20, 17, 20, 20]);
 });
 
@@ -780,7 +780,7 @@ test("Photo Mode reconciliation permits only retrying or skipping the pending ba
       body: JSON.stringify({ message: { chat: { id: 100 }, from: { id: 100 }, text: "/retry-photo 17 CONFIRM 20" } }),
     }), env);
     assert.equal(good.status, 200);
-    assert.match(updateSql, /album_next_offset=\\?/);
+    assert.match(updateSql, /album_next_offset=\?/);
     assert.match(updateSql, /album_pending_offset=NULL/);
     assert.deepEqual(updateValues, [20, 17, 10, 23]);
   } finally { globalThis.fetch = originalFetch; }
