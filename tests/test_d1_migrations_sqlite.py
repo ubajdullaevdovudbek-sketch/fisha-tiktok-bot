@@ -14,6 +14,7 @@ MIGRATIONS = [
     MIGRATIONS_DIR / "0002_delivery_uncertain.sql",
     MIGRATIONS_DIR / "0003_audio_jobs.sql",
     MIGRATIONS_DIR / "0004_photo_album_progress.sql",
+    MIGRATIONS_DIR / "0005_photo_batch_reconciliation.sql",
 ]
 
 
@@ -92,12 +93,12 @@ class D1MigrationSqliteTests(unittest.TestCase):
 
         video = self.db.execute(
             "SELECT id, kind, source_url, status, source_author, source_caption, "
-            "publishing_started_at, album_next_offset FROM videos WHERE id=41"
+            "publishing_started_at, album_next_offset, album_pending_offset, album_total_count FROM videos WHERE id=41"
         ).fetchone()
         self.assertEqual(
             video,
             (41, "tiktok_url", "https://tiktok.test/video/41", "published",
-             "creator", "existing caption", None, 0),
+             "creator", "existing caption", None, 0, None, None),
         )
 
         columns = {
@@ -105,6 +106,8 @@ class D1MigrationSqliteTests(unittest.TestCase):
         }
         self.assertIn("publishing_started_at", columns)
         self.assertIn("album_next_offset", columns)
+        self.assertIn("album_pending_offset", columns)
+        self.assertIn("album_total_count", columns)
 
         audio_table = self.db.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='audio_jobs'"
@@ -181,7 +184,7 @@ class D1MigrationSqliteTests(unittest.TestCase):
 
     def test_reapplying_an_alter_migration_fails_instead_of_duplicating(self):
         self.migrate()
-        for migration in (MIGRATIONS[0], MIGRATIONS[2]):
+        for migration in (MIGRATIONS[0], MIGRATIONS[2], MIGRATIONS[3]):
             with self.subTest(migration=migration.name):
                 with self.assertRaises(sqlite3.OperationalError):
                     self.db.executescript(migration.read_text(encoding="utf-8"))
