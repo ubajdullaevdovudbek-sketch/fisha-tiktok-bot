@@ -153,7 +153,7 @@ test("new TikTok links request an immediate publisher run when the token is conf
       env,
     );
     assert.equal(response.status, 200);
-    assert.match(statements.join("\\n"), /INSERT INTO videos\\(kind, source_url\\)/);
+    assert.ok(statements.some(sql => sql.includes("INSERT INTO videos(kind, source_url)")));
     const dispatch = requests.find(item => item.url.includes("api.github.com"));
     assert.ok(dispatch, "new TikTok links should dispatch the publisher");
     assert.ok(dispatch.url.endsWith("/actions/workflows/publish.yml/dispatches"));
