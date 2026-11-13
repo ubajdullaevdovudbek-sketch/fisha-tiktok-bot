@@ -1,21 +1,21 @@
 # Release readiness: Cloudflare Worker and D1
 
-Last reviewed: 2026-11-13 (final pass). Checks ran on branch head `2966509`; this revision adds the cutover-safety section, the verified cap/window removal and a regression test.
-Everything below was checked without touching production. Items that were **not** checked are marked as such.
+Last reviewed: 2026-11-13 (code audit refresh). Reviewed feature branch head `0d8996a` and the local-fallback parity changes. This review used repository source and CI metadata only; it did not access or change production.
+Everything below distinguishes repository/CI evidence from production facts that remain unverified.
 
 ## Current verified state
 
-- Feature branch: `feature/fast-photo-carousel-no-daily-cap`. It is 163 commits ahead of `main` (`f07a9ec`) and 0 behind, so the merge has no conflicts to resolve.
-- **CI is green.** Run `43374892654` at `7892412` passed both jobs (`python-tests`; `worker-tests` including the local Miniflare D1 migration and integration steps). Run `43376620439` at `2966509` (documentation only) also passed. The red runs on `cdbb7f2` and `5db1a4e` were test-fixture iterations fixed by `7892412`.
+- Feature branch: `feature/fast-photo-carousel-no-daily-cap`. At the latest comparison it is 173 commits ahead of `main` and 0 behind. This is a commit-count comparison, not proof that a merge is operationally safe; review the full diff and cutover sequence.
+- **CI is green on reviewed head `0d8996a5250279c5d2e057e3f22f1aacc5921ce2`.** Both `worker-tests` and `python-tests` completed successfully on that commit (GitHub check-runs API). Re-check CI on the eventual merge commit; this result does not certify later commits.
 - Local re-run in an offline sandbox (no package installs possible): `node --check` OK; 37/37 Worker tests that need no Miniflare (35 existing plus 2 new); 13/13 SQLite migration and lifecycle tests; 15/15 Python tests in the modules that import without third-party downloaders. **Not run locally:** `d1-integration.test.mjs` and `d1-migrations.test.mjs` (need Miniflare) and five Python modules (`test_core`, `test_photo_album_resume`, `test_process_audio_queue`, `test_process_queue_api`, `test_telegram_photo_publish`; need `yt_dlp`/`gallery_dl`). CI covers those.
 - Secret scan of every added line in `f07a9ec..HEAD`: 0 matches for GitHub tokens, Telegram bot-token shape or private keys. No hard-coded `Bearer` literals outside tests.
 - Download-only Photo Mode smoke test passed in CI (run `43352954518` at `68cd304`). A real **Telegram send** of an album or video has never been exercised end to end.
 - Migrations `0002`–`0004` were applied earlier to the separate test D1 database `fisha-tiktok-test` (ID `45cefcfb-f76d-4a3a-b48f-4375f65c0527`). Wrangler's recognition of its manually created `d1_migrations` table is **not** verified.
 - Production D1 `fisha-tiktok-queue` (ID `d3887cca-dad1-4436-b2f8-3486dadcddc7`) has not been inspected or changed. No production Worker deployment, D1 migration, secret update, webhook change, workflow pause or Telegram publication has been performed.
 
-## Why the branch is 163 commits ahead
+## Why the branch has many commits ahead
 
-The work was committed one file at a time, often with repeated messages. The net change against `main` is 39 files, +3390/−91:
+The work was committed in many small commits. The latest comparison reports 173 commits ahead; the file/line totals below are from an earlier comparison and must be refreshed before merge if used for scope estimation:
 
 | Area | Files | Needed for release |
 |---|---|---|
@@ -43,7 +43,7 @@ Dangerous items found: none that publish from the feature branch. `publish.yml`,
 - The publisher scripts and both workflows have no time or count gate. The 5-minute cron is only a wake-up schedule, not a publishing window.
 - Fixed in this pass: `cloudflare/wrangler.toml.example` still defined the three variables; they are removed, so a fresh setup from the example cannot bring them back.
 - Regression guard: `cloudflare/tests/no-publish-gate.test.mjs`. It fails if any of the three names appears in the Worker, either Wrangler config or either publisher workflow, and it runs the real claim SQL on SQLite with the legacy variables set (`POSTS_PER_DAY=1`, a closed window, three posts already today) and requires every queued job to be claimable in FIFO order. Mutation check: the same behavioural test **fails** against the old `main` Worker (returns 204 instead of 200).
-- Out of scope and unchanged: the legacy local polling mode (`python -m app`, the `Dockerfile` default, `app/config.py`, `.env.example`) still enforces 3 posts per day between 10:00 and 21:00. It is a separate fallback, documented in the README, and must not be run next to the hosted pipeline.
+- Local fallback parity was subsequently changed on this feature branch: `app/config.py`, `app/scheduler.py`, `app/__main__.py`, `.env.example`, `README.md`, and `tests/test_core.py` remove the daily cap and time window. The local scheduler checks every five minutes and attempts at most one queued item per tick. This supersedes the older statement above.
 
 ## Migrations 0002–0004 (verified offline on SQLite)
 
@@ -63,7 +63,7 @@ Dangerous items found: none that publish from the feature branch. `publish.yml`,
 | old | migrated | **new** | `/api/started` returns 404, so each claimed job is marked `failed` **before** any Telegram send and needs `/retry ID`. The number of such jobs is bounded by the old Worker's own cap/window gate. `publish-audio.yml` fails red because `/api/audio/claim` does not exist. No message is sent. |
 | new | migrated | new | Target state. |
 
-## Publisher behaviour on errors and reruns
+## Publisher and Worker behaviour on errors, recovery and reruns
 
 - Claim is atomic (`UPDATE … WHERE id=? AND status='queued'`). Runs share the concurrency group `fisha-publish-queue` with `cancel-in-progress: false`; per GitHub's concurrency semantics there is at most one running and one pending run (not re-verified here). Extra triggers lose nothing, because the queue lives in D1.
 - Claim or Worker API error: the run aborts red, nothing is claimed, the next trigger retries. Verified.
@@ -71,7 +71,7 @@ Dangerous items found: none that publish from the feature branch. `publish.yml`,
 - Failure after the marker, including `/api/complete` failing after a successful `sendVideo` (verified: exactly one `sendVideo`, then `/api/fail`, no resend): job becomes `failed` with `UNCERTAIN DELIVERY:`. Check the channel before `/retry`.
 - Runner killed or timed out (workflow limit 12 minutes): the next claim, after 20 minutes, requeues `processing` jobs without a marker and fails those with a marker as uncertain.
 - `/retry ID` clears the claim timestamp, the delivery marker and the error, and only acts on `failed` rows.
-- Photo albums checkpoint every 10-image batch. If the checkpoint call fails after Telegram accepted a batch, a manual retry can resend that one batch (a narrow, documented window).
+- Photo albums checkpoint every 10-image batch. If Telegram accepts a batch but the subsequent `/api/photo-progress` checkpoint fails, the stored offset remains behind; a manual retry can resend that batch. This is a known residual duplicate-delivery window, not exactly-once delivery. Verify the channel before retrying any uncertain album job.
 
 ## Manual workflow run with an empty queue
 
@@ -97,7 +97,7 @@ A manual run of `publish.yml` or `publish-audio.yml` on an empty queue sends not
 ### Protecting the old queue
 
 - **Never assume the queue is empty.** The only authoritative check is a read-only inspection of production D1 (needs approval), repeated immediately before the merge because new links keep arriving. The owner's `/status` and `/queue` commands read the same table through the Worker and are a secondary check only.
-- **Backlog flush hazard.** The old gate may have left a backlog. The new Worker has no cap, so once publishing resumes it publishes up to 5 oldest queued jobs per run, and with the token set a single new link triggers an immediate run. Before resuming, the owner decides: accept the flush, or hold the backlog.
+- **Backlog flush hazard.** The old gate may have left a backlog. The new Worker has no daily cap or time window. The publisher workflow's configured per-run batch limit is separate from those removed gates; with the token set a new link may trigger an immediate run. Before resuming, the owner decides: accept the flush, or hold the backlog.
 - **Hold (reversible, needs separate approval; proposed, not executed):**
   `UPDATE videos SET status='failed', force_publish=0, error='HELD before cutover' WHERE status='queued';`
   Release individual jobs later with `/retry ID`. `failed` rows are never recovered automatically and no schema change is needed.
@@ -132,7 +132,11 @@ SELECT id, kind, status, force_publish, claimed_at, published_at, substr(error,1
 7. **Backlog flush and legacy `processing` rows** must be decided and resolved with the owner before publishing resumes.
 8. **Pause persistence is unverified** (push trigger and survival across the merge). Re-check after the merge, before the deploy.
 9. **Behaviour change confirmed:** the owner explicitly approved removing the daily cap and time window from all modes, including the local fallback.
-10. **Not verified end to end:** a real Telegram album or video send, and a real GitHub dispatch with a real token.
+10. **Not verified end to end:** a real Telegram album, video or audio send, and a real GitHub dispatch with a real token.
+11. **Code audit refresh (2026-11-13):** reviewed `claimJob`, authenticated API routes (`/api/claim`, `/api/started`, `/api/complete`, `/api/fail`, `/api/photo-progress` and audio equivalents), Python video/photo publishing paths, and `app/queue_runner.py`. The source shows a bearer-secret check for internal API routes, conditional status transitions for claims/completion/failure, and a 20-minute recovery policy distinguishing pre-send claims from jobs with a delivery marker. This is source review, not a live concurrency or Telegram delivery test.
+12. **Photo album checkpoint residual risk:** a successful Telegram batch followed by a failed D1 checkpoint can be resent on a manual retry. Check the channel before retrying; do not describe the pipeline as exactly-once.
+13. **Current local fallback parity:** no daily cap or time window; one queued item maximum per five-minute scheduler tick. CI on `0d8996a` passed after these changes.
+14. **Audit scope limitation:** GitHub source review cannot establish production D1 schema/queue state, Cloudflare secret configuration, deployed Worker version, Telegram webhook state, or actual channel delivery.
 
 ## Required gated release sequence
 
@@ -173,7 +177,7 @@ Until every blocker is resolved and the required approvals are explicit, keep wo
 
 ## Local fallback parity update (2026-11-13)
 
-The local `python -m app` fallback has now been aligned with the no-daily-cap/no-time-window decision:
+The local `python -m app` fallback is aligned with the no-daily-cap/no-time-window decision:
 
 - Removed `POSTS_PER_DAY`, `PUBLISH_START`, `PUBLISH_END`, and the local-only timezone scheduling dependency from runtime configuration and `.env.example`.
 - The local scheduler checks the queue every five minutes and attempts at most one queued item per check. There is no daily counter or clock-window gate.
