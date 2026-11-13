@@ -89,6 +89,8 @@ class PhotoAlbumResumeTests(unittest.TestCase):
                         "source_author": "creator",
                         "album_next_offset": 0,
                     }}
+                if path == "/api/photo-batch-start":
+                    return {"ok": True}
                 if path == "/api/photo-progress":
                     raise RuntimeError("checkpoint write failed")
                 if path in ("/api/started", "/api/fail"):
@@ -110,6 +112,7 @@ class PhotoAlbumResumeTests(unittest.TestCase):
             self.assertEqual(post.call_count, 1)
             called_paths = [path for path, _payload in api_calls]
             self.assertIn("/api/started", called_paths)
+            self.assertIn("/api/photo-batch-start", called_paths)
             self.assertIn("/api/photo-progress", called_paths)
             self.assertIn("/api/fail", called_paths)
             self.assertNotIn("/api/complete", called_paths)
