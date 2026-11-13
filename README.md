@@ -1,6 +1,6 @@
 # Fisha TikTok → Telegram Bot
 
-Personal Telegram bot for collecting TikTok links or uploaded videos and automatically publishing queued videos or Photo Mode albums to a Telegram channel. The hosted queue has no daily publication cap or time-of-day gate.
+Personal Telegram bot for collecting TikTok links or uploaded videos and automatically publishing queued videos or Photo Mode albums to a Telegram channel. Hosted and local modes have no daily publication cap or time-of-day gate.
 
 ## Current scope
 
@@ -17,7 +17,7 @@ Personal Telegram bot for collecting TikTok links or uploaded videos and automat
 ### Telegram commands
 
 - `/start` — show bot instructions.
-- `/status` — show video queue counts.
+- `/status` — show video queue counts and local scheduler cadence.
 - `/queue` — list queued video/photo jobs, with manually prioritized jobs first.
 - `/audio-queue` — list queued, processing, and failed MP3 jobs with their audio job IDs.
 - `/publish` — prioritize the oldest queued video/photo job for the next scheduled runner.
@@ -75,7 +75,7 @@ Add `@Clougptbot` to `@zadrot1705` as an administrator with permission to post m
 3. Install dependencies: `pip install -r requirements.txt`.
 4. Start: `python -m app`.
 
-The bot uses long polling, so no public webhook URL is needed. **This local fallback is still legacy:** it currently uses the `POSTS_PER_DAY` limit and `PUBLISH_START`/`PUBLISH_END` window (defaults: 3 posts/day, 10:00–21:00 Asia/Tashkent), and it does not yet include the hosted Photo Mode album and separate audio-queue workflows. The no-daily-cap and full photo/audio pipeline described above apply to hosted mode.
+The bot uses long polling, so no public webhook URL is needed. The local fallback also has no daily cap or time-of-day gate: it checks the queue every five minutes and publishes at most one queued item per check. Unlike hosted mode, it does not yet include the hosted Photo Mode album and separate audio-queue workflows.
 
 ## Configuration
 
