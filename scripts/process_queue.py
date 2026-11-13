@@ -138,7 +138,7 @@ def publish_audio_best_effort(video_path: Path, folder: Path, title: str):
 
 
 def publish_photos(paths: list[Path], caption: str, before_send=None,
-                   start_offset: int = 0, after_batch=None):
+                   start_offset: int = 0, before_batch=None, after_batch=None):
     if not paths:
         raise RuntimeError("No photos to publish")
     if (start_offset < 0 or start_offset > len(paths) or
@@ -156,6 +156,8 @@ def publish_photos(paths: list[Path], caption: str, before_send=None,
         method = "sendPhoto" if len(batch) == 1 else "sendMediaGroup"
         if before_send:
             before_send()
+        if before_batch:
+            before_batch(offset, len(paths))
         with ExitStack() as stack:
             handles = [stack.enter_context(path.open("rb")) for path in batch]
             if method == "sendPhoto":
@@ -230,6 +232,10 @@ def process_one() -> bool:
                         make_caption(caption, author),
                         before_send=mark_delivery_started,
                         start_offset=saved_offset,
+                        before_batch=lambda offset, total: api(
+                            "/api/photo-batch-start",
+                            {"id": job_id, "offset": offset, "total_count": total},
+                        ),
                         after_batch=lambda next_offset: api(
                             "/api/photo-progress",
                             {"id": job_id, "next_offset": next_offset},
