@@ -35,7 +35,7 @@ test("photo progress persists the maximum confirmed offset for processing video 
   assert.match(db.calls[0].sql, /album_next_offset=MAX\(album_next_offset, \?\)/);
   assert.match(db.calls[0].sql, /status='processing'/);
   assert.match(db.calls[0].sql, /kind='tiktok_url'/);
-  assert.deepEqual(db.calls[0].values, [10, 12]);
+  assert.deepEqual(db.calls[0].values, [10, 12, 10, 10]);
 });
 
 test("photo progress rejects jobs not in processing state", async () => {
@@ -54,6 +54,9 @@ test("photo progress rejects invalid offsets", async () => {
 test("photo progress column exists in schema and migration", async () => {
   const schema = await readFile(new URL("../schema.sql", import.meta.url), "utf8");
   const migration = await readFile(new URL("../migrations/0004_photo_album_progress.sql", import.meta.url), "utf8");
+  const reconciliation = await readFile(new URL("../migrations/0005_photo_batch_reconciliation.sql", import.meta.url), "utf8");
   assert.match(schema, /album_next_offset INTEGER NOT NULL DEFAULT 0/);
   assert.match(migration, /ADD COLUMN album_next_offset INTEGER NOT NULL DEFAULT 0/);
+  assert.match(reconciliation, /ADD COLUMN album_pending_offset INTEGER/);
+  assert.match(reconciliation, /ADD COLUMN album_total_count INTEGER/);
 });
