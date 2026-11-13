@@ -175,7 +175,7 @@ async function handleTelegram(request, env) {
   }
 
   if (text === "/retry" || text.startsWith("/retry ")) {
-    const parts = text.split(/\\s+/);
+    const parts = text.split(/\s+/);
     const id = Number(parts[1]);
     const confirmUncertain = parts[2]?.toUpperCase() === "CONFIRM";
     if (!Number.isInteger(id) || id < 1 || parts.length > 3 ||
@@ -194,7 +194,7 @@ async function handleTelegram(request, env) {
   }
 
   if (text === "/retry-audio" || text.startsWith("/retry-audio ")) {
-    const parts = text.split(/\\s+/);
+    const parts = text.split(/\s+/);
     const id = Number(parts[1]);
     const confirmUncertain = parts[2]?.toUpperCase() === "CONFIRM";
     if (!Number.isInteger(id) || id < 1 || parts.length > 3 ||
