@@ -91,7 +91,7 @@ async function handleTelegram(request, env) {
   }
 
   if (callback) {
-    const match = /^publish:(\\d+)$/.exec(String(callback.data || ""));
+    const match = /^publish:(\d+)$/.exec(String(callback.data || ""));
     if (!match) {
       await telegram(env, "answerCallbackQuery", { callback_query_id: callback.id, text: "Неизвестная команда" });
       return json({ ok: true });
