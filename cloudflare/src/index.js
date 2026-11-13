@@ -175,7 +175,7 @@ async function handleTelegram(request, env) {
   }
 
   if (text === "/retry-photo" || text.startsWith("/retry-photo ")) {
-    const parts = text.split(/\\s+/);
+    const parts = text.split(/\s+/);
     const id = Number(parts[1]);
     const confirm = parts[2]?.toUpperCase() === "CONFIRM";
     const nextOffset = Number(parts[3]);
