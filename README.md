@@ -10,7 +10,7 @@ Personal Telegram bot for collecting TikTok links or uploaded videos and automat
 - Extract available metadata; never invent unavailable author/comment data.
 - Automatically queue incoming links/files for channel publishing; the hosted mode does not require a manual approval step.
 - Handle TikTok Photo Mode carousels as ordered Telegram photo albums (up to 10 images per Telegram media group).
-- Add an owner-only **Опубликовать сейчас** button to each accepted TikTok link. It prioritizes that exact job and requests a `publish.yml` run on `main` when the optional Worker secret `GITHUB_ACTIONS_TOKEN` is configured; without the token it safely falls back to the next scheduled runner.
+- Automatically request a `publish.yml` run on `main` whenever a new TikTok link is accepted, when the Worker secret `GITHUB_ACTIONS_TOKEN` is configured. Add an owner-only **Опубликовать сейчас** button to prioritize that exact job and request another run on demand. Without the token, both paths safely fall back to the next scheduled runner.
 - `/publish` still prioritizes the oldest queued item; without a dispatch token it waits for the next scheduled run.
 - Publish captions with source attribution.
 
@@ -45,7 +45,7 @@ The hosted mode uses a Cloudflare Worker for the Telegram webhook and D1 for the
 - `WORKER_API_SECRET` — a different random secret, 32+ characters.
 - `WORKER_API_URL` — the deployed Worker URL, stored as a GitHub Actions secret.
 
-For the owner-only **Опубликовать сейчас** button, optionally configure the Worker secret `GITHUB_ACTIONS_TOKEN` with a fine-grained GitHub token scoped to this repository and **Actions: write** permission. The Worker dispatches only `publish.yml` on `main`; never put this token in GitHub workflow logs or repository files. If the secret is absent, the button only prioritizes the job and scheduled processing remains the fallback.
+For immediate automatic dispatch on each incoming TikTok link and the owner-only **Опубликовать сейчас** button, configure the Worker secret `GITHUB_ACTIONS_TOKEN` with a fine-grained GitHub token scoped to this repository and **Actions: write** permission. The Worker dispatches only `publish.yml` on `main`; never put this token in GitHub workflow logs or repository files. If the secret is absent, new links are queued and the button only prioritizes its job; scheduled processing remains the fallback. GitHub-hosted runner startup and TikTok download time still mean this is not guaranteed to be instantaneous.
 
 The destination channel is currently configured as the public username `@zadrot1705` in the publisher workflow, so a separate `CHANNEL_ID` secret is optional. You can override it by adding that secret.
 
