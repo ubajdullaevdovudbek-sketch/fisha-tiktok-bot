@@ -5,8 +5,8 @@ This document separates repository/CI evidence from production observations. No 
 
 ## Verified repository state
 
-- Feature branch head at review start: `20dce5c40ff466997c7a6607b1847d1277a1348f`.
-- GitHub Actions run [#234](https://github.com/ubajdullaevdovudbek-sketch/fisha-tiktok-bot/actions/runs/43492885930) passed on that exact SHA: `python-tests` and `worker-tests`.
+- Feature branch head at this review: `f800af63d756d4018377ad8af3872751d2820c8c`.
+- GitHub Actions run [#237](https://github.com/ubajdullaevdovudbek-sketch/fisha-tiktok-bot/actions/runs/43493495011) passed on that exact SHA: `python-tests` and `worker-tests`.
 - The passing Worker job includes syntax checks, local Miniflare D1 migration checks and local D1 integration tests. These are not tests against production D1.
 - Draft PR [#2](https://github.com/ubajdullaevdovudbek-sketch/fisha-tiktok-bot/pull/2) is open, not merged. No merge to `main` is authorized by this document.
 - Intended behavior: remove daily publishing caps and time-of-day windows in hosted and local modes; support ordered/resumable TikTok photo albums and a separate audio queue.
@@ -21,8 +21,10 @@ The available Cloudflare MCP inspection exposed Worker name/ID/code and D1 SQL, 
 - Worker metadata: created `2026-11-10 08:46:30 UTC`; modified `2026-11-11 12:15:44 UTC`. The modified timestamp is not proof of a deployment time.
 - The script returned by the available code-inspection method contains the older routes and does not contain the new photo-batch/audio routes. Because version/traffic metadata is unavailable, this does not establish the exact active deployment under any gradual rollout.
 - Production D1: `fisha-tiktok-queue`, ID `d3887cca-dad1-4436-b2f8-3486dadcddc7`.
-- Observed `videos` columns: `id, kind, source_url, telegram_file_id, source_author, source_caption, status, force_publish, created_at, claimed_at, published_at, published_local_date, error`.
-- Observed tables: `videos`, `webhook_updates`; observed indexes: `idx_videos_queue`, `idx_videos_published_day`. No `d1_migrations` table was observed.
+- Observed `videos` columns: `id, kind, source_url, telegram_file_id, source_author, source_caption, status, force_publish, created_at, claimed_at, published_at, published_local_date, error` (13 columns). The four feature columns `publishing_started_at`, `album_next_offset`, `album_pending_offset`, and `album_total_count` are absent.
+- Observed tables: `videos`, `webhook_updates`, and Cloudflare's service table `_cf_KV`; observed application indexes: `idx_videos_queue`, `idx_videos_published_day`. No `audio_jobs` table, `idx_audio_jobs_queue` index, or `d1_migrations` table was observed.
+- A separate read-only audit confirmed the complete `sqlite_master`/`PRAGMA table_info` state. Every query reported `changes: 0`, `rows_written: 0`, `changed_db: false`; database size remained 32,768 bytes.
+- Queue snapshot from that audit: `videos` has 10 rows (`queued=2`, `processing=0`, `published=7`, `failed=1`). The two queued rows are IDs 9 and 10, both `tiktok_url`, with `claimed_at=NULL`; no row is in `processing`. The snapshot can become stale as the webhook continues to queue links.
 - The observed `videos.kind` CHECK allows `tiktok_url` and `telegram_file`; `status` allows `queued`, `processing`, `published`, `failed`.
 - Queue snapshot: 10 rows (2 queued, 0 processing, 7 published, 1 failed). Last queue/webhook activity observed: 2026-11-13 09:25 UTC; last publication observed: 2026-11-13 13:47 UTC. This is a snapshot, not a live guarantee.
 - The available interface did not expose Worker bindings/secrets or exact active version ID. Do not infer these from source code or metadata.
@@ -36,7 +38,7 @@ The feature branch contains additive migrations, to be considered only after a f
 3. `0004_photo_album_progress.sql` adds `videos.album_next_offset INTEGER NOT NULL DEFAULT 0`.
 4. `0005_photo_batch_reconciliation.sql` adds `videos.album_pending_offset INTEGER` and `videos.album_total_count INTEGER`.
 
-These migrations have not been applied to production. Migrations 0002, 0004 and 0005 add columns and are not safe to re-run blindly; 0003 uses idempotent table/index creation. Do not rely on a migration-history table until Wrangler's remote migration tracking has been checked. Do not create or apply a guessed 0001 baseline.
+The 2026-11-14 read-only production audit confirms none of these objects exists, so migrations 0002–0005 are not applied (not partially applied). Their exact SQL was fetched from the feature branch and compared with the observed production baseline: 0002, 0004, and 0005 each add only the stated columns; 0003 creates only `audio_jobs` and its index. None contains `UPDATE`, `DELETE`, `DROP`, or a table rebuild, so the existing 10 `videos` rows are not rewritten by these migration statements. Migrations 0002, 0004, and 0005 are not safe to re-run blindly; 0003 uses idempotent table/index creation. The absence of `d1_migrations` is confirmed, but it does not establish Wrangler's migration tracking state. Before applying anything, `wrangler d1 migrations list --remote` must be run in an environment with authorized Wrangler access and reconciled with this schema. Do not create or apply a guessed 0001 baseline.
 
 The deploy workflow's read-only schema gate requires all four new `videos` columns and the `audio_jobs` table. Passing this gate only proves those objects exist; it does not prove migration history is correct, bindings/secrets are configured, or the Worker is safe to publish.
 
