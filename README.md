@@ -21,8 +21,8 @@ Personal Telegram bot for collecting TikTok links or uploaded videos and automat
 - `/queue` — list queued video/photo jobs, with manually prioritized jobs first.
 - `/audio-queue` — list queued, processing, and failed MP3 jobs with their audio job IDs.
 - `/publish` — prioritize the oldest queued video/photo job for the next scheduled runner.
-- `/retry ID` — requeue an ordinary failed local video job.
-- `/retry ID CONFIRM` — explicitly requeue an `UNCERTAIN DELIVERY` local job only after checking the Telegram channel.
+- `/retry ID` — requeue a new local failure known to have happened before Telegram send began.
+- `/retry ID CONFIRM` — requeue an `UNCERTAIN DELIVERY` or legacy failure only after checking the Telegram channel. During upgrade, old `processing` rows without claim timestamps and old unclassified failures are conservatively marked uncertain.
 - `/retry-audio ID` — requeue a failed optional MP3 job; check the channel first if the prior send may have succeeded.
 
 ## Important constraints
