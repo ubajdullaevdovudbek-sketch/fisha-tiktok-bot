@@ -156,7 +156,7 @@ test("Worker photo checkpoint endpoint works on a migrated legacy D1", async () 
       },
       body: JSON.stringify({ id: 41, next_offset: 10 }),
     });
-    assert.equal(response.status, 200);
+    assert.equal(response.status, 200, await response.text());
 
     const row = await db.prepare("SELECT album_next_offset FROM videos WHERE id=41").first();
     assert.equal(row.album_next_offset, 10);
