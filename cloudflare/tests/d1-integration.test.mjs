@@ -52,16 +52,21 @@ test("real Worker + local D1: photo checkpoints are monotonic and state guarded"
     ).run();
     const id = inserted.meta.last_row_id;
 
-    let response = await api(mf, "/api/photo-progress", { id, next_offset: 10 });
+    let response = await api(mf, "/api/photo-batch-start", { id, offset: 0, total_count: 20 });
     assert.equal(response.status, 200);
-    response = await api(mf, "/api/photo-progress", { id, next_offset: 5 });
+    response = await api(mf, "/api/photo-progress", { id, next_offset: 10 });
+    assert.equal(response.status, 200);
+
+    response = await api(mf, "/api/photo-batch-start", { id, offset: 10, total_count: 20 });
+    assert.equal(response.status, 200);
+    response = await api(mf, "/api/photo-progress", { id, next_offset: 20 });
     assert.equal(response.status, 200);
 
     const row = await db.prepare("SELECT album_next_offset FROM videos WHERE id=?").bind(id).first();
-    assert.equal(row.album_next_offset, 10);
+    assert.equal(row.album_next_offset, 20);
 
     await db.prepare("UPDATE videos SET status='queued' WHERE id=?").bind(id).run();
-    response = await api(mf, "/api/photo-progress", { id, next_offset: 15 });
+    response = await api(mf, "/api/photo-progress", { id, next_offset: 25 });
     assert.equal(response.status, 409);
   } finally {
     await mf.dispose();
