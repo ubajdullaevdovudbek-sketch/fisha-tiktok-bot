@@ -131,7 +131,7 @@ SELECT id, kind, status, force_publish, claimed_at, published_at, substr(error,1
 6. **Merge and deploy are coupled.** A push to `main` triggers both publishers, and the deploy workflow runs only from `main`, so the merge comes first and the new publisher briefly meets the old Worker. Handled by the pause above.
 7. **Backlog flush and legacy `processing` rows** must be decided and resolved with the owner before publishing resumes.
 8. **Pause persistence is unverified** (push trigger and survival across the merge). Re-check after the merge, before the deploy.
-9. **Behaviour change needs owner confirmation:** the daily cap and time window are removed.
+9. **Behaviour change confirmed:** the owner explicitly approved removing the daily cap and time window from all modes, including the local fallback.
 10. **Not verified end to end:** a real Telegram album or video send, and a real GitHub dispatch with a real token.
 
 ## Required gated release sequence
@@ -169,3 +169,14 @@ Disabling and re-enabling the workflows; production read-only D1 inspection; eac
 ## Safety rule
 
 Until every blocker is resolved and the required approvals are explicit, keep work on the feature branch. Do not merge, deploy, migrate production D1, change Cloudflare secrets/configuration, register a webhook, or publish to Telegram.
+
+
+## Local fallback parity update (2026-11-13)
+
+The local `python -m app` fallback has now been aligned with the no-daily-cap/no-time-window decision:
+
+- Removed `POSTS_PER_DAY`, `PUBLISH_START`, `PUBLISH_END`, and the local-only timezone scheduling dependency from runtime configuration and `.env.example`.
+- The local scheduler checks the queue every five minutes and attempts at most one queued item per check. There is no daily counter or clock-window gate.
+- `/status` reports this behavior.
+- Regression tests cover publishing with a queued item and doing nothing when the queue is empty.
+- This change is only in the feature branch; it does not change the running local deployment or the hosted Worker until a separately approved release/restart.
