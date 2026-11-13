@@ -38,6 +38,26 @@ class Store:
             if "publishing_started_at" not in columns:
                 db.execute("ALTER TABLE videos ADD COLUMN publishing_started_at TEXT")
 
+            # Rows created by older local publishers have no claim timestamp.
+            # Their delivery state cannot be reconstructed, so quarantine them.
+            db.execute(
+                """UPDATE videos
+                   SET status='failed', claimed_at=NULL,
+                       error=? || COALESCE(error, 'no previous error recorded')
+                   WHERE status='processing' AND claimed_at IS NULL
+                     AND (error IS NULL OR error NOT LIKE 'UNCERTAIN DELIVERY:%')""",
+                (UNCERTAIN_DELIVERY + " legacy processing row; check channel before retry. Previous error: ",),
+            )
+            # Older versions marked send exceptions as ordinary failures. Telegram
+            # may nevertheless have accepted those sends, so require confirmation.
+            db.execute(
+                """UPDATE videos
+                   SET error=? || COALESCE(error, 'no previous error recorded')
+                   WHERE status='failed'
+                     AND (error IS NULL OR error NOT LIKE 'UNCERTAIN DELIVERY:%')""",
+                (UNCERTAIN_DELIVERY + " legacy failure; check channel before retry. Previous error: ",),
+            )
+
     def add(self, file_path: str, source_url: str = "", author: str = "", caption: str = "", comment: str = "") -> int:
         with self.connect() as db:
             cur = db.execute(
