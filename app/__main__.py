@@ -41,7 +41,7 @@ async def main():
         published = counts.get("published", 0)
         await message.answer(
             f"В очереди: {q}\nОпубликовано: {published}\nОшибки: {failed}\n"
-            f"Лимит: до {cfg.posts_per_day} видео в день, окно {cfg.publish_start}–{cfg.publish_end} ({cfg.timezone})."
+            "Автопубликация: без суточного лимита и временного окна; проверка очереди каждые 5 минут."
         )
 
     @dp.message(Command("queue"))
