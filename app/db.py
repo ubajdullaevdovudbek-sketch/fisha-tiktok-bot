@@ -48,6 +48,8 @@ class Store:
 
     def queued(self) -> list[dict[str, Any]]:
         with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            self._recover_stale(db)
             rows = db.execute("SELECT * FROM videos WHERE status='queued' ORDER BY id").fetchall()
             return [dict(row) for row in rows]
 
@@ -144,14 +146,16 @@ class Store:
             ).fetchone()
             return int(row["n"])
 
-    def requeue(self, item_id: int) -> bool:
-        """Retry ordinary failures only; uncertain delivery needs a manual channel check."""
+    def requeue(self, item_id: int, confirm_uncertain: bool = False) -> bool:
+        """Retry ordinary failures; uncertain delivery requires explicit owner confirmation."""
+        condition = "(error IS NULL OR error NOT LIKE 'UNCERTAIN DELIVERY:%')"
+        if confirm_uncertain:
+            condition = "1=1"
         with self.connect() as db:
             cur = db.execute(
                 """UPDATE videos SET status='queued', error=NULL, claimed_at=NULL,
                    publishing_started_at=NULL
-                   WHERE id=? AND status='failed'
-                     AND (error IS NULL OR error NOT LIKE 'UNCERTAIN DELIVERY:%')""",
+                   WHERE id=? AND status='failed' AND """ + condition,
                 (item_id,),
             )
             return cur.rowcount > 0
