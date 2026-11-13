@@ -53,7 +53,7 @@ test("owner publish button prioritizes the queued job and dispatches the main pu
     assert.match(statements.join("\\n"), /force_publish=1 WHERE id=\?/);
     const dispatch = requests.find(item => item.url.includes("api.github.com"));
     assert.ok(dispatch, "GitHub workflow dispatch request should be made");
-    assert.match(dispatch.url, /actions\\/workflows\\/publish\\.yml\\/dispatches$/);
+    assert.ok(dispatch.url.endsWith("/actions/workflows/publish.yml/dispatches"));
     assert.deepEqual(JSON.parse(dispatch.options.body), { ref: "main" });
     assert.equal(dispatch.options.headers.Authorization, "Bearer github-actions-token");
   } finally {
