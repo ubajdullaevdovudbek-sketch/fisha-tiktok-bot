@@ -734,7 +734,7 @@ test("generic confirmed retry cannot bypass Photo Mode reconciliation", async ()
     DB: {
       prepare(sql) {
         sqlSeen = sql;
-        return { bind() { return this; }, async run() { return { meta: { changes: 0 }; } } };
+        return { bind() { return this; }, async run() { return { meta: { changes: 0 } }; } };
       },
     },
   };
@@ -762,7 +762,7 @@ test("Photo Mode reconciliation permits only retrying or skipping the pending ba
         return {
           bind(...args) { this.values = args; return this; },
           async first() { return { album_pending_offset: 10, album_total_count: 23 }; },
-          async run() { updateSql = sql; updateValues = this.values; return { meta: { changes: 1 }; } },
+          async run() { updateSql = sql; updateValues = this.values; return { meta: { changes: 1 } }; },
         };
       },
     },
