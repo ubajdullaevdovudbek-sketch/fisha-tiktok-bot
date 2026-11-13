@@ -12,6 +12,8 @@ CREATE TABLE IF NOT EXISTS videos (
   claimed_at TEXT,
   publishing_started_at TEXT,
   album_next_offset INTEGER NOT NULL DEFAULT 0,
+  album_pending_offset INTEGER,
+  album_total_count INTEGER,
 
   published_at TEXT,
   published_local_date TEXT,
