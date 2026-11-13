@@ -77,6 +77,34 @@ class LocalDeliverySafetyTests(unittest.TestCase):
             self.assertIsNotNone(store.claim(item_id))
             self.assertIsNone(store.claim(item_id))
 
+    def test_legacy_processing_row_without_claim_timestamp_is_quarantined(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store, item_id = self.make_store(tmp)
+            with store.connect() as db:
+                db.execute(
+                    "UPDATE videos SET status='processing', claimed_at=NULL WHERE id=?",
+                    (item_id,),
+                )
+            Store(store.path)
+            item = store.get(item_id)
+            self.assertEqual(item["status"], "failed")
+            self.assertTrue(item["error"].startswith("UNCERTAIN DELIVERY:"))
+            self.assertFalse(store.requeue(item_id))
+
+    def test_legacy_failed_row_requires_confirmation_after_upgrade(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store, item_id = self.make_store(tmp)
+            with store.connect() as db:
+                db.execute(
+                    "UPDATE videos SET status='failed', error='connection reset' WHERE id=?",
+                    (item_id,),
+                )
+            Store(store.path)
+            item = store.get(item_id)
+            self.assertTrue(item["error"].startswith("UNCERTAIN DELIVERY:"))
+            self.assertFalse(store.requeue(item_id))
+            self.assertTrue(store.requeue(item_id, confirm_uncertain=True))
+
     def test_uncertain_failure_requires_explicit_retry_confirmation(self):
         with tempfile.TemporaryDirectory() as tmp:
             store, item_id = self.make_store(tmp)
