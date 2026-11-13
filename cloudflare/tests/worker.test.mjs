@@ -665,3 +665,123 @@ test("audio queue command lists queued, processing, and failed audio jobs", asyn
     globalThis.fetch = originalFetch;
   }
 });
+
+
+test("Photo Mode batch start is persisted before a Telegram request can happen", async () => {
+  let sqlSeen = "";
+  let values = [];
+  const env = {
+    WORKER_API_SECRET: "worker-secret",
+    DB: { prepare(sql) { sqlSeen = sql; return { bind(...args) { values = args; return this; }, async run() { return { meta: { changes: 1 } }; } }; } },
+  };
+  const response = await worker.fetch(new Request("https://example.test/api/photo-batch-start", {
+    method: "POST",
+    headers: { Authorization: "Bearer worker-secret", "content-type": "application/json" },
+    body: JSON.stringify({ id: 17, offset: 10, total_count: 23 }),
+  }), env);
+  assert.equal(response.status, 200);
+  assert.match(sqlSeen, /album_pending_offset=\\?/);
+  assert.match(sqlSeen, /publishing_started_at=COALESCE/);
+  assert.deepEqual(values, [10, 23, 17, 10, 23]);
+});
+
+test("Photo Mode batch start rejects invalid offsets and totals", async () => {
+  let writes = 0;
+  const env = {
+    WORKER_API_SECRET: "worker-secret",
+    DB: { prepare() { writes += 1; return { bind() { return this; }, async run() { return { meta: { changes: 1 } }; } }; } },
+  };
+  for (const body of [
+    { id: 1, offset: -1, total_count: 20 },
+    { id: 1, offset: 5, total_count: 20 },
+    { id: 1, offset: 20, total_count: 20 },
+    { id: 1, offset: 10, total_count: 0 },
+  ]) {
+    const response = await worker.fetch(new Request("https://example.test/api/photo-batch-start", {
+      method: "POST", headers: { Authorization: "Bearer worker-secret", "content-type": "application/json" },
+      body: JSON.stringify(body),
+    }), env);
+    assert.equal(response.status, 400);
+  }
+  assert.equal(writes, 0);
+});
+
+test("Photo Mode progress advances and clears the in-flight marker only after success", async () => {
+  let sqlSeen = "";
+  let values = [];
+  const env = {
+    WORKER_API_SECRET: "worker-secret",
+    DB: { prepare(sql) { sqlSeen = sql; return { bind(...args) { values = args; return this; }, async run() { return { meta: { changes: 1 } }; } }; } },
+  };
+  const response = await worker.fetch(new Request("https://example.test/api/photo-progress", {
+    method: "POST", headers: { Authorization: "Bearer worker-secret", "content-type": "application/json" },
+    body: JSON.stringify({ id: 17, next_offset: 20 }),
+  }), env);
+  assert.equal(response.status, 200);
+  assert.match(sqlSeen, /album_pending_offset=NULL/);
+  assert.match(sqlSeen, /\\? > album_pending_offset/);
+  assert.deepEqual(values, [20, 17, 20, 20]);
+});
+
+test("generic confirmed retry cannot bypass Photo Mode reconciliation", async () => {
+  const originalFetch = globalThis.fetch;
+  let sqlSeen = "";
+  globalThis.fetch = async () => new Response(JSON.stringify({ ok: true, result: {} }), {
+    status: 200, headers: { "content-type": "application/json" },
+  });
+  const env = {
+    TELEGRAM_WEBHOOK_SECRET: "webhook-secret", OWNER_ID: "100",
+    DB: {
+      prepare(sql) {
+        sqlSeen = sql;
+        return { bind() { return this; }, async run() { return { meta: { changes: 0 }; } } };
+      },
+    },
+  };
+  try {
+    const response = await worker.fetch(new Request("https://example.test/telegram/webhook", {
+      method: "POST", headers: { "content-type": "application/json", "X-Telegram-Bot-Api-Secret-Token": "webhook-secret" },
+      body: JSON.stringify({ message: { chat: { id: 100 }, from: { id: 100 }, text: "/retry 17 CONFIRM" } }),
+    }), env);
+    assert.equal(response.status, 200);
+    assert.match(sqlSeen, /album_pending_offset IS NULL/);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test("Photo Mode reconciliation permits only retrying or skipping the pending batch", async () => {
+  const originalFetch = globalThis.fetch;
+  let updateSql = "";
+  let updateValues = [];
+  globalThis.fetch = async () => new Response(JSON.stringify({ ok: true, result: {} }), {
+    status: 200, headers: { "content-type": "application/json" },
+  });
+  const env = {
+    TELEGRAM_WEBHOOK_SECRET: "webhook-secret", OWNER_ID: "100",
+    DB: {
+      prepare(sql) {
+        return {
+          bind(...args) { this.values = args; return this; },
+          async first() { return { album_pending_offset: 10, album_total_count: 23 }; },
+          async run() { updateSql = sql; updateValues = this.values; return { meta: { changes: 1 }; } },
+        };
+      },
+    },
+  };
+  try {
+    const bad = await worker.fetch(new Request("https://example.test/telegram/webhook", {
+      method: "POST", headers: { "content-type": "application/json", "X-Telegram-Bot-Api-Secret-Token": "webhook-secret" },
+      body: JSON.stringify({ message: { chat: { id: 100 }, from: { id: 100 }, text: "/retry-photo 17 CONFIRM 15" } }),
+    }), env);
+    assert.equal(bad.status, 200);
+    assert.equal(updateSql, "");
+
+    const good = await worker.fetch(new Request("https://example.test/telegram/webhook", {
+      method: "POST", headers: { "content-type": "application/json", "X-Telegram-Bot-Api-Secret-Token": "webhook-secret" },
+      body: JSON.stringify({ message: { chat: { id: 100 }, from: { id: 100 }, text: "/retry-photo 17 CONFIRM 20" } }),
+    }), env);
+    assert.equal(good.status, 200);
+    assert.match(updateSql, /album_next_offset=\\?/);
+    assert.match(updateSql, /album_pending_offset=NULL/);
+    assert.deepEqual(updateValues, [20, 17, 10, 23]);
+  } finally { globalThis.fetch = originalFetch; }
+});
