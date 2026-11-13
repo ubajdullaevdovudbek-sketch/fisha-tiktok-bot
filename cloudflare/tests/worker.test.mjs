@@ -248,10 +248,11 @@ test("manual retry clears the old delivery marker and claim timestamp", async ()
     assert.match(sqlSeen, /claimed_at=NULL/);
     assert.match(sqlSeen, /publishing_started_at=NULL/);
     assert.match(sqlSeen, /status='failed'/);
+    assert.match(sqlSeen, /error NOT LIKE 'UNCERTAIN DELIVERY:%'/);
     // Keep album_next_offset intact: a manually approved retry must resume
     // from the last confirmed batch, not resend the entire carousel.
     assert.doesNotMatch(sqlSeen, /album_next_offset\s*=\s*0/);
-    assert.deepEqual(values, [17]);
+    assert.deepEqual(values, [17, 0]);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -610,7 +611,7 @@ test("manual audio retry resets the send marker and requeues only failed audio j
     assert.match(sqlSeen, /claimed_at=NULL/);
     assert.match(sqlSeen, /audio_started_at=NULL/);
     assert.match(sqlSeen, /status='failed'/);
-    assert.deepEqual(values, [23]);
+    assert.deepEqual(values, [23, 0]);
   } finally {
     globalThis.fetch = originalFetch;
   }
