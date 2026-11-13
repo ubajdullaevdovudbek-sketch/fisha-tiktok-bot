@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 from app.db import Store
-from app.publisher import make_caption
+from app.publisher import make_caption, publish_one
 from app.scheduler import publish_due
 
 
@@ -134,10 +134,6 @@ class LocalDeliverySafetyTests(unittest.TestCase):
             store, item_id = self.make_store(tmp)
             bot = SimpleNamespace(send_video=AsyncMock())
             item = store.get(item_id)
-            results = asyncio.run(asyncio.gather(
-                publish_one(bot, store, "@channel", item),
-                publish_one(bot, store, "@channel", item),
-            )) if False else None
             async def run_both():
                 return await asyncio.gather(
                     publish_one(bot, store, "@channel", item),
