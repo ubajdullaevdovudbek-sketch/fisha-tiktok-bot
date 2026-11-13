@@ -26,22 +26,27 @@ async function reply(env, chatId, text, replyMarkup) {
 
 async function dispatchPublisher(env) {
   if (!env.GITHUB_ACTIONS_TOKEN) return { dispatched: false, reason: "token_missing" };
-  const response = await fetch(
-    "https://api.github.com/repos/ubajdullaevdovudbek-sketch/fisha-tiktok-bot/actions/workflows/publish.yml/dispatches",
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${env.GITHUB_ACTIONS_TOKEN}`,
-        Accept: "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28",
-        "Content-Type": "application/json",
+  try {
+    const response = await fetch(
+      "https://api.github.com/repos/ubajdullaevdovudbek-sketch/fisha-tiktok-bot/actions/workflows/publish.yml/dispatches",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${env.GITHUB_ACTIONS_TOKEN}`,
+          Accept: "application/vnd.github+json",
+          "X-GitHub-Api-Version": "2022-11-28",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ ref: "main" }),
       },
-      body: JSON.stringify({ ref: "main" }),
-    },
-  );
-  if (response.status === 204) return { dispatched: true };
-  console.error("GitHub Actions dispatch failed:", response.status);
-  return { dispatched: false, reason: "dispatch_failed" };
+    );
+    if (response.status === 204) return { dispatched: true };
+    console.error("GitHub Actions dispatch failed:", response.status);
+    return { dispatched: false, reason: "dispatch_failed" };
+  } catch (error) {
+    console.error("GitHub Actions dispatch request failed:", error);
+    return { dispatched: false, reason: "dispatch_failed" };
+  }
 }
 
 function localParts(date, timeZone) {
@@ -219,10 +224,14 @@ async function handleTelegram(request, env) {
     const keyboard = Number.isSafeInteger(jobId) && jobId > 0 ? {
       inline_keyboard: [[{ text: "Опубликовать сейчас", callback_data: `publish:${jobId}` }]],
     } : null;
-    await reply(env, chatId,
-      "Ссылка принята. Видео будет скачано и автоматически поставлено на публикацию. Кнопка ниже поднимет это задание и запросит внеплановый запуск обработчика.",
-      keyboard);
-    return json({ ok: true });
+    const dispatch = await dispatchPublisher(env);
+    const statusText = dispatch.dispatched
+      ? "Ссылка принята. Я запросил внеплановый запуск обработчика — публикация начнётся после старта GitHub Actions и загрузки видео."
+      : dispatch.reason === "token_missing"
+        ? "Ссылка принята и поставлена в очередь. Сейчас обработчик запустится по расписанию; для запуска сразу ещё нужен секрет GITHUB_ACTIONS_TOKEN в Worker."
+        : "Ссылка принята и поставлена в очередь. Не удалось запросить внеплановый запуск, поэтому её подхватит плановый обработчик.";
+    await reply(env, chatId, statusText, keyboard);
+    return json({ ok: true, dispatched: dispatch.dispatched });
   }
 
   await reply(env, chatId, "Пришли ссылку TikTok или видеофайл.");
