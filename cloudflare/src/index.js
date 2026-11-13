@@ -16,8 +16,32 @@ async function telegram(env, method, payload) {
   return data;
 }
 
-async function reply(env, chatId, text) {
-  return telegram(env, "sendMessage", { chat_id: chatId, text });
+async function reply(env, chatId, text, replyMarkup) {
+  return telegram(env, "sendMessage", {
+    chat_id: chatId,
+    text,
+    ...(replyMarkup ? { reply_markup: replyMarkup } : {}),
+  });
+}
+
+async function dispatchPublisher(env) {
+  if (!env.GITHUB_ACTIONS_TOKEN) return { dispatched: false, reason: "token_missing" };
+  const response = await fetch(
+    "https://api.github.com/repos/ubajdullaevdovudbek-sketch/fisha-tiktok-bot/actions/workflows/publish.yml/dispatches",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${env.GITHUB_ACTIONS_TOKEN}`,
+        Accept: "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ ref: "main" }),
+    },
+  );
+  if (response.status === 204) return { dispatched: true };
+  console.error("GitHub Actions dispatch failed:", response.status);
+  return { dispatched: false, reason: "dispatch_failed" };
 }
 
 function localParts(date, timeZone) {
@@ -45,21 +69,18 @@ async function handleTelegram(request, env) {
   }
 
   const update = await request.json();
+  const callback = update.callback_query;
   const message = update.message;
-  if (!message || !message.chat || !message.from) return json({ ok: true });
-
+  const actor = callback?.from || message?.from;
   const ownerId = String(env.OWNER_ID || "");
-  if (String(message.from.id) !== ownerId) return json({ ok: true });
+  if (!actor || String(actor.id) !== ownerId) return json({ ok: true });
 
-  // Telegram retries webhook deliveries. Record update IDs before side effects
-  // so the same message cannot be queued or answered twice.
+  // Telegram retries webhook deliveries. Deduplicate both messages and button callbacks.
   if (Number.isSafeInteger(update.update_id)) {
     const seen = await env.DB.prepare(
       "INSERT OR IGNORE INTO webhook_updates(update_id) VALUES(?)"
     ).bind(update.update_id).run();
     if (!seen.meta?.changes) return json({ ok: true, duplicate: true });
-    // Retention cleanup must never prevent the newly recorded update from
-    // being handled: Telegram retries would otherwise be rejected as duplicates.
     try {
       await env.DB.prepare(
         "DELETE FROM webhook_updates WHERE created_at < strftime('%Y-%m-%dT%H:%M:%fZ','now','-30 days')"
@@ -68,6 +89,33 @@ async function handleTelegram(request, env) {
       console.warn("Webhook update retention cleanup failed:", error);
     }
   }
+
+  if (callback) {
+    const match = /^publish:(\\d+)$/.exec(String(callback.data || ""));
+    if (!match) {
+      await telegram(env, "answerCallbackQuery", { callback_query_id: callback.id, text: "Неизвестная команда" });
+      return json({ ok: true });
+    }
+    const jobId = Number(match[1]);
+    const prioritized = await env.DB.prepare(
+      "UPDATE videos SET force_publish=1 WHERE id=? AND status='queued'"
+    ).bind(jobId).run();
+    if (!prioritized.meta?.changes) {
+      await telegram(env, "answerCallbackQuery", { callback_query_id: callback.id, text: "Задание уже обрабатывается или опубликовано" });
+      return json({ ok: true });
+    }
+    const dispatch = await dispatchPublisher(env);
+    const messageText = dispatch.dispatched
+      ? `Задание #${jobId} передано на немедленный запуск обработчика. Старт GitHub Actions всё равно может занять некоторое время.`
+      : dispatch.reason === "token_missing"
+        ? `Задание #${jobId} поднято в начало очереди. Для запуска без ожидания расписания ещё нужен секрет GITHUB_ACTIONS_TOKEN в Worker; пока обработчик подхватит его по расписанию.`
+        : `Задание #${jobId} поднято в начало очереди, но GitHub не подтвердил запуск. Оно останется в очереди для планового обработчика.`;
+    await telegram(env, "answerCallbackQuery", { callback_query_id: callback.id, text: dispatch.dispatched ? "Запуск запрошен" : "Очередь обновлена" });
+    if (callback.message?.chat?.id) await reply(env, callback.message.chat.id, messageText);
+    return json({ ok: true, dispatched: dispatch.dispatched });
+  }
+
+  if (!message || !message.chat || !message.from) return json({ ok: true });
 
   const chatId = message.chat.id;
   const text = String(message.text || "").trim();
@@ -163,11 +211,17 @@ async function handleTelegram(request, env) {
   }
 
   if (text.includes("tiktok.com/")) {
-    await env.DB.prepare(
+    const inserted = await env.DB.prepare(
       "INSERT INTO videos(kind, source_url) VALUES('tiktok_url', ?)"
     ).bind(text).run();
     durableSideEffectCommitted = true;
-    await reply(env, chatId, "Ссылка принята. Видео будет скачано и поставлено в очередь публикации.");
+    const jobId = Number(inserted.meta?.last_row_id);
+    const keyboard = Number.isSafeInteger(jobId) && jobId > 0 ? {
+      inline_keyboard: [[{ text: "Опубликовать сейчас", callback_data: `publish:${jobId}` }]],
+    } : null;
+    await reply(env, chatId,
+      "Ссылка принята. Видео будет скачано и автоматически поставлено на публикацию. Кнопка ниже поднимет это задание и запросит внеплановый запуск обработчика.",
+      keyboard);
     return json({ ok: true });
   }
 
