@@ -1,7 +1,8 @@
 name: tests
 on:
+  workflow_dispatch:
   push:
-    branches: [main]
+    branches: [main, feature/fast-photo-carousel-no-daily-cap]
   pull_request:
     branches: [main]
 jobs:
@@ -13,6 +14,8 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -r requirements.txt
+      - name: D1 migration checks (SQLite, ordered 0002-0004 on exact pre-0002 baseline)
+        run: python -m unittest tests.test_d1_migrations_sqlite tests.test_d1_lifecycle_sqlite -v
       - run: python -m unittest discover -s tests -v
 
   worker-tests:
@@ -24,6 +27,12 @@ jobs:
           node-version: "22"
       - name: Check Worker syntax
         run: node --check cloudflare/src/index.js
-      - name: Test Worker access controls
+      - name: Install local D1 test runtime
         working-directory: cloudflare
-        run: node --test tests/*.test.mjs
+        run: npm install --no-save miniflare@^3
+      - name: D1 migration checks (local Miniflare D1, not a hosted database)
+        working-directory: cloudflare
+        run: timeout --signal=TERM --kill-after=15s 120s node --test --test-concurrency=1 tests/d1-migrations.test.mjs
+      - name: Test Worker access controls and local D1 integration
+        working-directory: cloudflare
+        run: timeout --signal=TERM --kill-after=15s 180s node --test --test-concurrency=1 tests/*.test.mjs

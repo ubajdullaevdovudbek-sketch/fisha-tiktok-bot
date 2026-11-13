@@ -10,6 +10,11 @@ CREATE TABLE IF NOT EXISTS videos (
   force_publish INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
   claimed_at TEXT,
+  publishing_started_at TEXT,
+  album_next_offset INTEGER NOT NULL DEFAULT 0,
+  album_pending_offset INTEGER,
+  album_total_count INTEGER,
+
   published_at TEXT,
   published_local_date TEXT,
   error TEXT
@@ -24,3 +29,22 @@ CREATE TABLE IF NOT EXISTS webhook_updates (
   update_id INTEGER PRIMARY KEY,
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
+
+
+-- Optional audio work is isolated from the primary video publication queue.
+CREATE TABLE IF NOT EXISTS audio_jobs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  video_id INTEGER NOT NULL UNIQUE REFERENCES videos(id),
+  kind TEXT NOT NULL CHECK (kind IN ('tiktok_url', 'telegram_file')),
+  source_url TEXT,
+  telegram_file_id TEXT,
+  title TEXT NOT NULL DEFAULT 'TikTok audio',
+  status TEXT NOT NULL DEFAULT 'queued'
+    CHECK (status IN ('queued', 'processing', 'published', 'failed')),
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  claimed_at TEXT,
+  audio_started_at TEXT,
+  completed_at TEXT,
+  error TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_audio_jobs_queue ON audio_jobs(status, id);

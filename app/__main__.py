@@ -41,7 +41,7 @@ async def main():
         published = counts.get("published", 0)
         await message.answer(
             f"В очереди: {q}\nОпубликовано: {published}\nОшибки: {failed}\n"
-            f"Лимит: до {cfg.posts_per_day} видео в день, окно {cfg.publish_start}–{cfg.publish_end} ({cfg.timezone})."
+            "Автопубликация: без суточного лимита и временного окна; проверка очереди каждые 5 минут."
         )
 
     @dp.message(Command("queue"))
@@ -60,14 +60,21 @@ async def main():
         if not is_owner(message):
             return
         parts = (message.text or "").split(maxsplit=1)
-        if len(parts) != 2 or not parts[1].isdigit():
-            await message.answer("Использование: /retry ID")
+        if len(parts) not in (2, 3) or not parts[1].isdigit():
+            await message.answer("Использование: /retry ID [CONFIRM]")
             return
         item_id = int(parts[1])
-        if store.requeue(item_id):
+        confirm_uncertain = len(parts) == 3 and parts[2].upper() == "CONFIRM"
+        if len(parts) == 3 and not confirm_uncertain:
+            await message.answer("Для неопределённой доставки используй: /retry ID CONFIRM — только после проверки канала.")
+            return
+        if store.requeue(item_id, confirm_uncertain=confirm_uncertain):
             await message.answer(f"Видео #{item_id} возвращено в очередь.")
         else:
-            await message.answer("Не найдено видео с ошибкой для повторной постановки.")
+            await message.answer(
+                "Обычная ошибка не найдена. Если статус UNCERTAIN DELIVERY, сначала проверь канал, "
+                "затем используй /retry ID CONFIRM."
+            )
 
     @dp.message(Command("publish"))
     async def publish(message: Message):

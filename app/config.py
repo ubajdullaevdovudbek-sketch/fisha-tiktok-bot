@@ -12,10 +12,6 @@ class Config:
     bot_token: str
     owner_id: int
     channel_id: str
-    timezone: str
-    posts_per_day: int
-    publish_start: str
-    publish_end: str
     data_dir: Path
     max_video_mb: int
 
@@ -32,10 +28,6 @@ def load_config() -> Config:
         bot_token=token,
         owner_id=int(owner),
         channel_id=channel,
-        timezone=os.getenv("TIMEZONE", "Asia/Tashkent"),
-        posts_per_day=max(1, int(os.getenv("POSTS_PER_DAY", "3"))),
-        publish_start=os.getenv("PUBLISH_START", "10:00"),
-        publish_end=os.getenv("PUBLISH_END", "21:00"),
         data_dir=data_dir,
         max_video_mb=max(10, int(os.getenv("MAX_VIDEO_MB", "180"))),
     )

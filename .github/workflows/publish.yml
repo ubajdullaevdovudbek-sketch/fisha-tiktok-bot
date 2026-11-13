@@ -12,7 +12,9 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  publish-one:
+  publish-queue:
+    # This workflow publishes to the live Telegram channel; never run it from feature branches.
+    if: github.ref == 'refs/heads/main' && vars.ENABLE_PRODUCTION_PUBLISH == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
@@ -73,11 +75,12 @@ jobs:
           echo "worker_api_url=$WORKER_URL" >> "$GITHUB_OUTPUT"
           echo "Worker health check passed."
 
-      - name: Process one eligible video
+      - name: Process queued videos
         env:
           WORKER_API_URL: ${{ steps.worker.outputs.worker_api_url }}
           WORKER_API_SECRET: ${{ secrets.WORKER_API_SECRET }}
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           CHANNEL_ID: ${{ secrets.CHANNEL_ID || '@zadrot1705' }}
           MAX_VIDEO_MB: "48"
+          MAX_JOBS_PER_RUN: "5"
         run: python scripts/process_queue.py
