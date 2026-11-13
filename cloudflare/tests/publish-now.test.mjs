@@ -8,10 +8,9 @@ test("owner publish button prioritizes the queued job and dispatches the main pu
   const requests = [];
   globalThis.fetch = async (url, options = {}) => {
     requests.push({ url: String(url), options });
+    if (String(url).includes("api.github.com")) return new Response(null, { status: 204 });
     return new Response(JSON.stringify({ ok: true, result: {} }), {
-      status: String(url).includes("api.github.com")
-        ? 204
-        : 200,
+      status: 200,
       headers: { "content-type": "application/json" },
     });
   };
