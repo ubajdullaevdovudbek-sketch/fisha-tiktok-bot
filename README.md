@@ -22,7 +22,8 @@ Personal Telegram bot for collecting TikTok links or uploaded videos and automat
 - `/audio-queue` — list queued, processing, and failed MP3 jobs with their audio job IDs.
 - `/publish` — prioritize the oldest queued video/photo job for the next scheduled runner.
 - `/retry ID` — requeue a new local failure known to have happened before Telegram send began.
-- `/retry ID CONFIRM` — requeue an `UNCERTAIN DELIVERY` or legacy failure only after checking the Telegram channel. During upgrade, old `processing` rows without claim timestamps and old unclassified failures are conservatively marked uncertain.
+- `/retry ID CONFIRM` — requeue an `UNCERTAIN DELIVERY` job only after checking the Telegram channel. Photo Mode jobs with an in-flight batch cannot use this generic retry.
+- `/retry-photo ID CONFIRM NEXT_OFFSET` — reconcile an uncertain Photo Mode batch after checking the channel. Choose the pending batch offset to resend that group, or the next block offset (up to 10 images later) to skip the group. The command accepts only those two offsets and only for a failed Photo Mode job with a recorded in-flight batch.
 - `/retry-audio ID` — requeue a failed optional MP3 job; check the channel first if the prior send may have succeeded.
 
 ## Important constraints
@@ -64,7 +65,7 @@ Add `@Clougptbot` to `@zadrot1705` as an administrator with permission to post m
 
 - GitHub scheduled runs are best-effort and may be delayed.
 - Video/photo jobs are processed in batches of up to five per run; optional audio jobs use a separate batch of up to three.
-- Jobs claimed by a runner that disappears are returned to the queue after 20 minutes if Telegram delivery has not started. If delivery may have started, the job is marked `UNCERTAIN DELIVERY` and must be checked in the channel before manual retry.
+- Jobs claimed by a runner that disappears are returned to the queue after 20 minutes if Telegram delivery has not started. If delivery may have started, the job is marked `UNCERTAIN DELIVERY` and must be checked in the channel before manual retry. For Photo Mode, each batch offset and album size are persisted before contacting Telegram; confirmed batches advance progress and clear the in-flight marker. An ambiguous batch stays quarantined until `/retry-photo ID CONFIRM NEXT_OFFSET` explicitly chooses whether to resend or skip that batch. Telegram has no idempotency key for media-group sends, so this operator reconciliation reduces accidental duplicates but cannot guarantee exactly-once delivery.
 - Telegram Bot API upload size limits apply; the publisher currently caps source videos at 48 MB.
 - TikTok may block downloads or omit author metadata. The bot never fabricates the most-liked comment; currently it does not scrape comments.
 - Repost only videos you have permission to use.
