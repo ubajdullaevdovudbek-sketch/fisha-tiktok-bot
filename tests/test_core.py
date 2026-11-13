@@ -1,9 +1,13 @@
+import asyncio
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
 from app.db import Store
 from app.publisher import make_caption
+from app.scheduler import publish_due
 
 
 class StoreTests(unittest.TestCase):
@@ -33,6 +37,26 @@ class CaptionTests(unittest.TestCase):
     def test_top_comment_only_when_available(self):
         caption = make_caption({"source_caption": "Hello"})
         self.assertNotIn("Популярный комментарий", caption)
+
+
+class LocalSchedulerTests(unittest.TestCase):
+    def test_publishes_queued_item_without_daily_or_time_window_gate(self):
+        queued_item = {"id": 17}
+        store = SimpleNamespace(queued=lambda: [queued_item])
+        cfg = SimpleNamespace(channel_id="@zadrot1705")
+        bot = object()
+
+        with patch("app.scheduler.publish_one", new_callable=AsyncMock) as publish:
+            asyncio.run(publish_due(bot, store, cfg))
+            publish.assert_awaited_once_with(bot, store, "@zadrot1705", queued_item)
+
+    def test_does_nothing_when_queue_is_empty(self):
+        store = SimpleNamespace(queued=lambda: [])
+        cfg = SimpleNamespace(channel_id="@zadrot1705")
+
+        with patch("app.scheduler.publish_one", new_callable=AsyncMock) as publish:
+            asyncio.run(publish_due(object(), store, cfg))
+            publish.assert_not_awaited()
 
 
 if __name__ == "__main__":
