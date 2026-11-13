@@ -2,51 +2,32 @@ name: deploy-cloudflare
 
 on:
   workflow_dispatch:
+    inputs:
+      confirm_production_deploy:
+        description: "I confirm this deploy targets the production fisha-tiktok-bot Worker"
+        required: true
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
 jobs:
   deploy:
-    # Production deployment is deliberately restricted to the protected release branch.
-    if: github.ref == 'refs/heads/main'
+    # Two independent gates: a repository variable and an explicit manual confirmation.
+    if: github.ref == 'refs/heads/main' && vars.ALLOW_PRODUCTION_DEPLOY == 'true' && inputs.confirm_production_deploy == true
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - name: Validate required secrets
+      - name: Validate deployment credentials
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
-          OWNER_ID: ${{ secrets.OWNER_ID }}
-          TELEGRAM_WEBHOOK_SECRET: ${{ secrets.TELEGRAM_WEBHOOK_SECRET }}
-          WORKER_API_SECRET: ${{ secrets.WORKER_API_SECRET }}
         run: |
           set -euo pipefail
-          missing=()
-          for name in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID BOT_TOKEN OWNER_ID TELEGRAM_WEBHOOK_SECRET WORKER_API_SECRET; do
-            if [ -z "${!name}" ]; then
-              missing+=("$name")
-            fi
-          done
-          if (("${#missing[@]}" > 0)); then
-            printf '::error::Missing required GitHub Actions secrets: %s\n' "${missing[*]}"
-            exit 1
-          fi
+          test -n "$CLOUDFLARE_API_TOKEN"
           if ! [[ "$CLOUDFLARE_ACCOUNT_ID" =~ ^[a-fA-F0-9]{32}$ ]]; then
             echo "::error::CLOUDFLARE_ACCOUNT_ID must be a 32-character hexadecimal account ID."
-            exit 1
-          fi
-          if ! [[ "$OWNER_ID" =~ ^[1-9][0-9]*$ ]]; then
-            echo "::error::OWNER_ID must be a positive numeric Telegram user ID."
-            exit 1
-          fi
-          if [ "${#TELEGRAM_WEBHOOK_SECRET}" -lt 32 ] || [ "${#WORKER_API_SECRET}" -lt 32 ]; then
-            echo "::error::Both webhook secrets must be at least 32 characters."
-            exit 1
-          fi
-          if [ "$TELEGRAM_WEBHOOK_SECRET" = "$WORKER_API_SECRET" ]; then
-            echo "::error::Webhook and worker API secrets must be different."
             exit 1
           fi
 
@@ -56,66 +37,21 @@ jobs:
         with:
           node-version: "22"
 
-      # The D1 database, schema, and binding are already provisioned.
-      # Deploy directly from the committed Wrangler config to avoid broad D1 API permissions.
+      # This workflow deploys code only. It never changes secrets, D1, or Telegram webhook.
       - name: Deploy Worker
-        id: deploy
         working-directory: cloudflare
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
-          set -uo pipefail
+          set -euo pipefail
           CLOUDFLARE_API_TOKEN="$(printf '%s' "$CLOUDFLARE_API_TOKEN" | tr -d '[:space:]')"
           export CLOUDFLARE_API_TOKEN
-          set +e
-          OUTPUT="$(npx --yes wrangler@4 deploy --config wrangler.toml 2>&1)"
-          DEPLOY_STATUS=$?
-          set -e
-          echo "$OUTPUT"
-          if [ "$DEPLOY_STATUS" -ne 0 ]; then
-            echo "::error::Wrangler deploy failed with exit code $DEPLOY_STATUS."
-            exit "$DEPLOY_STATUS"
-          fi
-          WORKER_URL="$(printf '%s\n' "$OUTPUT" | grep -Eo 'https://[A-Za-z0-9.-]+\.workers\.dev' | tail -n1)"
-          if [ -z "$WORKER_URL" ]; then
-            echo "::error::Could not detect the deployed workers.dev URL."
-            exit 1
-          fi
-          echo "worker_url=$WORKER_URL" >> "$GITHUB_OUTPUT"
+          npx --yes wrangler@4 deploy --config wrangler.toml
 
-      - name: Store Worker secrets
-        working-directory: cloudflare
+      - name: Verify Worker health
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
-          OWNER_ID: ${{ secrets.OWNER_ID }}
-          TELEGRAM_WEBHOOK_SECRET: ${{ secrets.TELEGRAM_WEBHOOK_SECRET }}
-          WORKER_API_SECRET: ${{ secrets.WORKER_API_SECRET }}
+          WORKER_URL: https://fisha-tiktok-bot.ubajdullaevbek.workers.dev
         run: |
           set -euo pipefail
-          printf '%s' "$BOT_TOKEN" | npx --yes wrangler@4 secret put BOT_TOKEN --config wrangler.toml
-          printf '%s' "$OWNER_ID" | npx --yes wrangler@4 secret put OWNER_ID --config wrangler.toml
-          printf '%s' "$TELEGRAM_WEBHOOK_SECRET" | npx --yes wrangler@4 secret put TELEGRAM_WEBHOOK_SECRET --config wrangler.toml
-          printf '%s' "$WORKER_API_SECRET" | npx --yes wrangler@4 secret put WORKER_API_SECRET --config wrangler.toml
-
-      - name: Register Telegram webhook
-        env:
-          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
-          TELEGRAM_WEBHOOK_SECRET: ${{ secrets.TELEGRAM_WEBHOOK_SECRET }}
-          WORKER_URL: ${{ steps.deploy.outputs.worker_url }}
-        run: |
-          set -euo pipefail
-          RESULT="$(curl -fsS -X POST "https://api.telegram.org/bot$BOT_TOKEN/setWebhook" --data-urlencode "url=$WORKER_URL/telegram/webhook" --data-urlencode "secret_token=$TELEGRAM_WEBHOOK_SECRET")"
-          echo "$RESULT" | jq -e '.ok == true' >/dev/null
-          echo "Telegram webhook registered successfully."
-
-      - name: Verify deployed Worker
-        env:
-          WORKER_URL: ${{ steps.deploy.outputs.worker_url }}
-        run: |
-          set -euo pipefail
-          curl -fsS "$WORKER_URL/health" | jq -e '.ok == true' >/dev/null
-          echo "Worker health check passed: $WORKER_URL"
-          echo "The publisher resolves this URL automatically from the Cloudflare account subdomain."
+          curl --retry 5 --retry-delay 2 --retry-connrefused -fsS "$WORKER_URL/health" | jq -e '.ok == true' >/dev/null
+          echo "Worker health check passed."
