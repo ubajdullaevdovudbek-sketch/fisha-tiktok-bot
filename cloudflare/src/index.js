@@ -341,7 +341,7 @@ async function claimJob(env) {
   // A runner abandoned before Telegram send can be retried, but only three
   // total claims are allowed. Once delivery starts, never retry automatically.
   await env.DB.prepare(
-    "UPDATE videos SET status=CASE WHEN attempt_count < 3 THEN 'queued' ELSE 'failed' END, claimed_at=NULL, next_attempt_at=CASE WHEN attempt_count < 3 THEN strftime('%Y-%m-%dT%H:%M:%fZ','now','+1 minute') ELSE NULL END, error=CASE WHEN attempt_count < 3 THEN 'Runner stopped before Telegram delivery; retry scheduled' ELSE 'Retry limit reached after runner stopped before Telegram delivery' END WHERE status='processing' AND publishing_started_at IS NULL AND claimed_at IS NOT NULL AND julianday(claimed_at) < julianday('now', '-20 minutes')"
+    "UPDATE videos SET status=CASE WHEN attempt_count < 3 THEN 'queued' ELSE 'failed' END, claimed_at=NULL, next_attempt_at=NULL, error=CASE WHEN attempt_count < 3 THEN 'Runner stopped before Telegram delivery; retry scheduled' ELSE 'Retry limit reached after runner stopped before Telegram delivery' END WHERE status='processing' AND publishing_started_at IS NULL AND claimed_at IS NOT NULL AND julianday(claimed_at) < julianday('now', '-20 minutes')"
   ).run();
   await env.DB.prepare(
     "UPDATE videos SET status='failed', claimed_at=NULL, next_attempt_at=NULL, error='UNCERTAIN DELIVERY: runner stopped after Telegram delivery started; check the channel before /retry' WHERE status='processing' AND publishing_started_at IS NOT NULL AND julianday(publishing_started_at) < julianday('now', '-20 minutes')"
