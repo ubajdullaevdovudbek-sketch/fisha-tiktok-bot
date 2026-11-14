@@ -836,6 +836,10 @@ test("control dashboard requires its separate read-only secret", async () => {
     headers: { Authorization: "Bearer publisher-secret" },
   }), env);
   assert.equal(denied.status, 503);
+  const sameAsPublisher = await worker.fetch(new Request("https://example.test/api/control/status", {
+    headers: { Authorization: "Bearer publisher-secret" },
+  }), { ...env, CONTROL_READ_SECRET: "publisher-secret" });
+  assert.equal(sameAsPublisher.status, 503);
   const wrong = await worker.fetch(new Request("https://example.test/api/control/status", {
     headers: { Authorization: "Bearer wrong-secret" },
   }), { ...env, CONTROL_READ_SECRET: "dashboard-secret" });
