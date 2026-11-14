@@ -49,13 +49,16 @@ jobs:
           python-version: "3.12"
           cache: pip
 
-      - name: Install video tools and dependencies
+      - name: Ensure FFmpeg is available and install Python dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg
+          if ! command -v ffmpeg >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y ffmpeg
+          else
+            echo "FFmpeg already present on the GitHub runner; skipping apt installation."
+          fi
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install requests
 
       - name: Resolve and verify Worker URL
         id: worker
