@@ -174,3 +174,25 @@ test("Worker photo checkpoint endpoint works on a migrated legacy D1", async () 
     await mf.dispose();
   }
 });
+
+
+
+test("migration 0006 creates unique source keys without backfilling old rows", async () => {
+  const { mf, db } = await setupLegacyDb();
+  try {
+    for (const file of migrationFiles) await runSql(db, file);
+    const old = await db.prepare("SELECT source_key FROM videos WHERE id=41").first();
+    assert.equal(old.source_key, null);
+    await db.prepare(
+      "INSERT INTO videos(kind, source_url, source_key, tiktok_video_id) VALUES('tiktok_url', 'https://tiktok.test/video/900', 'tt:900', '900')"
+    ).run();
+    await assert.rejects(
+      db.prepare(
+        "INSERT INTO videos(kind, source_url, source_key, tiktok_video_id) VALUES('tiktok_url', 'https://vm.tiktok.com/abc', 'tt:900', '900')"
+      ).run(),
+      /UNIQUE/i,
+    );
+  } finally {
+    await mf.dispose();
+  }
+});
