@@ -64,22 +64,22 @@ function localParts(date, timeZone) {
 
 
 function parseTikTokIdentity(input) {
-  const match = String(input || "").match(/(?:https?:\\/\\/)?(?:www\\.|m\\.|vm\\.|vt\\.)?tiktok\\.com\\/[^\\s<>"']+/i);
+  const match = String(input || "").match(/(?:https?:\/\/)?(?:www\.|m\.|vm\.|vt\.)?tiktok\.com\/[^\s<>"']+/i);
   if (!match) return null;
   let raw = match[0].replace(/[),.!?;]+$/g, "");
-  if (!/^https?:\\/\\//i.test(raw)) raw = "https://" + raw;
+  if (!/^https?:\/\//i.test(raw)) raw = "https://" + raw;
   let parsed;
   try { parsed = new URL(raw); } catch { return null; }
-  const host = parsed.hostname.toLowerCase().replace(/^www\\./, "");
+  const host = parsed.hostname.toLowerCase().replace(/^www\./, "");
   if (!(host === "tiktok.com" || host.endsWith(".tiktok.com"))) return null;
-  const path = parsed.pathname.replace(/\\/+$/g, "") || "/";
-  const videoId = path.match(/\\/video\\/(\\d+)/i)?.[1] || null;
+  const path = parsed.pathname.replace(/\/+$/g, "") || "/";
+  const videoId = path.match(/\/video\/(\d+)/i)?.[1] || null;
   const sourceKey = videoId ? `tt:${videoId}` : `url:${host}${path.toLowerCase()}`;
   return { url: parsed.toString(), sourceKey, videoId };
 }
 
 function isRetryableBeforeDelivery(message) {
-  return /timeout|timed out|temporar|connection|network|reset|econn|dns|\\b429\\b|\\b5\\d\\d\\b|rate.?limit|remote end closed|incomplete read|socket|try again|\\b502\\b|\\b503\\b|\\b504\\b/i.test(String(message || ""));
+  return /timeout|timed out|temporar|connection|network|reset|econn|dns|\b429\b|\b5\d\d\b|rate.?limit|remote end closed|incomplete read|socket|try again|\b502\b|\b503\b|\b504\b/i.test(String(message || ""));
 }
 
 async function handleTelegram(request, env) {
@@ -183,10 +183,13 @@ async function handleTelegram(request, env) {
       "UPDATE videos SET force_publish=1 WHERE id=(SELECT id FROM videos WHERE status='queued' ORDER BY id LIMIT 1)"
     ).run();
     durableSideEffectCommitted = Boolean(result.meta?.changes);
+    const dispatch = result.meta?.changes ? await dispatchPublisher(env) : { dispatched: false };
     await reply(env, chatId, result.meta?.changes
-      ? "Следующее задание поднято в начало очереди. Обработчик заберёт его при ближайшем запуске GitHub Actions; расписание может задержаться."
+      ? dispatch.dispatched
+        ? "Следующее задание поднято в начало очереди; немедленный запуск обработчика запрошен."
+        : "Следующее задание поднято в начало очереди. Его подхватит плановый обработчик; немедленный запуск требует GITHUB_ACTIONS_TOKEN."
       : "Очередь пуста.");
-    return json({ ok: true });
+    return json({ ok: true, dispatched: dispatch.dispatched });
   }
 
   if (text === "/retry-photo" || text.startsWith("/retry-photo ")) {
@@ -266,8 +269,11 @@ async function handleTelegram(request, env) {
       "INSERT INTO videos(kind, telegram_file_id, source_caption) VALUES('telegram_file', ?, ?)"
     ).bind(message.video.file_id, message.caption || "").run();
     durableSideEffectCommitted = true;
-    await reply(env, chatId, "Видео принято в очередь.");
-    return json({ ok: true });
+    const dispatch = await dispatchPublisher(env);
+    await reply(env, chatId, dispatch.dispatched
+      ? "Видео принято. Немедленный запуск обработчика запрошен."
+      : "Видео принято в очередь. Его подхватит плановый обработчик.");
+    return json({ ok: true, dispatched: dispatch.dispatched });
   }
 
   if (text.includes("tiktok.com/")) {
@@ -620,7 +626,7 @@ async function api(request, env, path) {
       "UPDATE videos SET status=CASE WHEN publishing_started_at IS NULL AND attempt_count < 3 AND ?=1 THEN 'queued' ELSE 'failed' END, claimed_at=NULL, next_attempt_at=CASE WHEN publishing_started_at IS NULL AND attempt_count < 3 AND ?=1 THEN strftime('%Y-%m-%dT%H:%M:%fZ','now', CASE attempt_count WHEN 1 THEN '+1 minute' ELSE '+5 minutes' END) ELSE NULL END, error=CASE WHEN publishing_started_at IS NULL AND attempt_count < 3 AND ?=1 THEN 'RETRY SCHEDULED: ' || ? WHEN publishing_started_at IS NOT NULL THEN 'UNCERTAIN DELIVERY: ' || ? ELSE ? END WHERE id=? AND status='processing'"
     ).bind(retryable ? 1 : 0, retryable ? 1 : 0, retryable ? 1 : 0, errorText, errorText, errorText, id).run();
     if (!result.meta?.changes) return json({ ok: false, error: "Video is not currently processing" }, 409);
-    return json({ ok: true, retry_scheduled: retryable });
+    return json({ ok: true });
   }
 
   return new Response("Not found", { status: 404 });
