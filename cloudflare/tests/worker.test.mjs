@@ -312,7 +312,7 @@ test("webhook retention cleanup failure does not drop a new owner message", asyn
             if (sql.startsWith("DELETE FROM webhook_updates")) {
               throw new Error("temporary cleanup failure");
             }
-            if (sql.startsWith("INSERT INTO videos")) queued += 1;
+            if (sql.startsWith("INSERT OR IGNORE INTO videos")) queued += 1;
             return { meta: { changes: 1 } };
           },
         };
@@ -390,7 +390,7 @@ test("failed queue insertion releases the webhook dedupe key for Telegram retry"
         return {
           bind() { return this; },
           async run() {
-            if (sql.startsWith("INSERT INTO videos")) throw new Error("temporary queue write failure");
+            if (sql.startsWith("INSERT OR IGNORE INTO videos")) throw new Error("temporary queue write failure");
             return { meta: { changes: 1 } };
           },
         };
@@ -784,4 +784,58 @@ test("Photo Mode reconciliation permits only retrying or skipping the pending ba
     assert.match(updateSql, /album_pending_offset=NULL/);
     assert.deepEqual(updateValues, [20, 17, 10, 23]);
   } finally { globalThis.fetch = originalFetch; }
+});
+
+
+
+test("transient pre-delivery failures are queued with bounded backoff", async () => {
+  let sqlSeen = "";
+  let values = [];
+  const env = {
+    WORKER_API_SECRET: "worker-secret",
+    DB: {
+      prepare(sql) {
+        sqlSeen = sql;
+        return {
+          bind(...args) { values = args; return this; },
+          async run() { return { meta: { changes: 1 } }; },
+        };
+      },
+    },
+  };
+  const response = await worker.fetch(new Request("https://example.test/api/fail", {
+    method: "POST",
+    headers: { Authorization: "Bearer worker-secret", "content-type": "application/json" },
+    body: JSON.stringify({ id: 19, error: "yt-dlp connection timed out (HTTP 503)" }),
+  }), env);
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { ok: true });
+  assert.match(sqlSeen, /attempt_count < 3/);
+  assert.match(sqlSeen, /RETRY SCHEDULED:/);
+  assert.match(sqlSeen, /next_attempt_at=/);
+  assert.deepEqual(values, [
+    1, 1, 1,
+    "yt-dlp connection timed out (HTTP 503)",
+    "yt-dlp connection timed out (HTTP 503)",
+    "yt-dlp connection timed out (HTTP 503)",
+    19,
+  ]);
+});
+
+test("control dashboard requires its separate read-only secret", async () => {
+  const env = {
+    WORKER_API_SECRET: "publisher-secret",
+    DB: { prepare() { throw new Error("unauthorized dashboard request must not touch D1"); } },
+  };
+  const denied = await worker.fetch(new Request("https://example.test/api/control/status", {
+    headers: { Authorization: "Bearer publisher-secret" },
+  }), env);
+  assert.equal(denied.status, 503);
+  const wrong = await worker.fetch(new Request("https://example.test/api/control/status", {
+    headers: { Authorization: "Bearer wrong-secret" },
+  }), { ...env, CONTROL_READ_SECRET: "dashboard-secret" });
+  assert.equal(wrong.status, 401);
+  const page = await worker.fetch(new Request("https://example.test/control"), env);
+  assert.equal(page.status, 200);
+  assert.match(page.headers.get("content-security-policy"), /frame-ancestors 'none'/);
 });
