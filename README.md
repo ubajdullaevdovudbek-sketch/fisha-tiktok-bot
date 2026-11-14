@@ -10,7 +10,7 @@ Personal Telegram bot for collecting TikTok links or uploaded videos and automat
 - Extract available metadata; never invent unavailable author/comment data.
 - Automatically queue incoming links/files for channel publishing; the hosted mode does not require a manual approval step.
 - Handle TikTok Photo Mode carousels as ordered Telegram photo albums (up to 10 images per Telegram media group).
-- Automatically request a `publish.yml` run on `main` whenever a new TikTok link is accepted, when the Worker secret `GITHUB_ACTIONS_TOKEN` is configured. Add an owner-only **Опубликовать сейчас** button to prioritize that exact job and request another run on demand. Without the token, both paths safely fall back to the next scheduled runner.
+- Automatically request a `publish.yml` run on `main` whenever a new TikTok link or Telegram video is accepted, when the Worker secret `GITHUB_ACTIONS_TOKEN` is configured. The owner `/publish` command and **Опубликовать сейчас** button also request an immediate run after prioritizing the job. Without the token, jobs safely fall back to the next scheduled runner.
 - `/publish` still prioritizes the oldest queued item; without a dispatch token it waits for the next scheduled run.
 - Publish captions with source attribution.
 
