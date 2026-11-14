@@ -315,6 +315,7 @@ test("webhook retention cleanup failure does not drop a new owner message", asyn
             if (sql.startsWith("INSERT OR IGNORE INTO videos")) queued += 1;
             return { meta: { changes: 1 } };
           },
+          async first() { return null; },
         };
       },
     },
@@ -395,6 +396,7 @@ test("failed queue insertion releases the webhook dedupe key for Telegram retry"
             if (sql.startsWith("INSERT OR IGNORE INTO videos")) throw new Error("temporary queue write failure");
             return { meta: { changes: 1 } };
           },
+          async first() { return null; },
         };
       },
     },
@@ -438,6 +440,7 @@ test("reply failure after queue insertion keeps the webhook dedupe key", async (
             if (sql.startsWith("INSERT OR IGNORE INTO videos")) return { meta: { changes: 1, last_row_id: 77 } };
             return { meta: { changes: 1 } };
           },
+          async first() { return null; },
         };
       },
     },
