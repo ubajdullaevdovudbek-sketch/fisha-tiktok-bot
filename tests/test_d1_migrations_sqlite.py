@@ -94,7 +94,7 @@ class D1MigrationSqliteTests(unittest.TestCase):
 
         video = self.db.execute(
             "SELECT id, kind, source_url, status, source_author, source_caption, "
-            "publishing_started_at, album_next_offset, album_pending_offset, album_total_count FROM videos WHERE id=41"
+            "publishing_started_at, album_next_offset, album_pending_offset, album_total_count, attempt_count, next_attempt_at, source_key, tiktok_video_id FROM videos WHERE id=41"
         ).fetchone()
         self.assertEqual(
             video,
@@ -189,7 +189,7 @@ class D1MigrationSqliteTests(unittest.TestCase):
 
     def test_reapplying_an_alter_migration_fails_instead_of_duplicating(self):
         self.migrate()
-        for migration in (MIGRATIONS[0], MIGRATIONS[2], MIGRATIONS[3]):
+        for migration in (MIGRATIONS[0], MIGRATIONS[2], MIGRATIONS[3], MIGRATIONS[4]):
             with self.subTest(migration=migration.name):
                 with self.assertRaises(sqlite3.OperationalError):
                     self.db.executescript(migration.read_text(encoding="utf-8"))
