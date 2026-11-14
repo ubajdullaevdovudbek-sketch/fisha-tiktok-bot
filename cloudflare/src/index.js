@@ -168,10 +168,17 @@ async function handleTelegram(request, env) {
       "UPDATE videos SET force_publish=1 WHERE id=(SELECT id FROM videos WHERE status='queued' ORDER BY id LIMIT 1)"
     ).run();
     durableSideEffectCommitted = Boolean(result.meta?.changes);
-    await reply(env, chatId, result.meta?.changes
-      ? "Следующее задание поднято в начало очереди. Обработчик заберёт его при ближайшем запуске GitHub Actions; расписание может задержаться."
-      : "Очередь пуста.");
-    return json({ ok: true });
+    if (!result.meta?.changes) {
+      await reply(env, chatId, "Очередь пуста.");
+      return json({ ok: true });
+    }
+    const dispatch = await dispatchPublisher(env);
+    await reply(env, chatId, dispatch.dispatched
+      ? "Следующее задание поднято в начало очереди. Запросил немедленный запуск обработчика."
+      : dispatch.reason === "token_missing"
+        ? "Следующее задание поднято в начало очереди. Нет GITHUB_ACTIONS_TOKEN — обработчик заберёт его по расписанию."
+        : "Следующее задание поднято в начало очереди, но GitHub не подтвердил запуск. Оно останется в очереди для планового обработчика.");
+    return json({ ok: true, dispatched: dispatch.dispatched });
   }
 
   if (text === "/retry-photo" || text.startsWith("/retry-photo ")) {
@@ -251,8 +258,13 @@ async function handleTelegram(request, env) {
       "INSERT INTO videos(kind, telegram_file_id, source_caption) VALUES('telegram_file', ?, ?)"
     ).bind(message.video.file_id, message.caption || "").run();
     durableSideEffectCommitted = true;
-    await reply(env, chatId, "Видео принято в очередь.");
-    return json({ ok: true });
+    const dispatch = await dispatchPublisher(env);
+    await reply(env, chatId, dispatch.dispatched
+      ? "Видео принято. Запросил немедленный запуск публикации."
+      : dispatch.reason === "token_missing"
+        ? "Видео принято в очередь. Для немедленного запуска нужен секрет GITHUB_ACTIONS_TOKEN; пока обработчик подхватит его по расписанию."
+        : "Видео принято в очередь. Не удалось запросить внеплановый запуск, поэтому его подхватит плановый обработчик.");
+    return json({ ok: true, dispatched: dispatch.dispatched });
   }
 
   if (text.includes("tiktok.com/")) {
