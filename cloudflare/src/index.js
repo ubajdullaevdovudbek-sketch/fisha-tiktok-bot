@@ -421,7 +421,11 @@ window.addEventListener("pagehide",()=>{readKey="";el("key").value=""});
 
 async function api(request, env, path) {
   if (path === "/api/control/status" || path === "/api/control/queue") {
-    if (!env.CONTROL_READ_SECRET) return json({ ok: false, error: "Read-only dashboard access is not configured" }, 503);
+    if (!env.CONTROL_READ_SECRET ||
+        env.CONTROL_READ_SECRET === env.WORKER_API_SECRET ||
+        env.CONTROL_READ_SECRET === env.TELEGRAM_WEBHOOK_SECRET) {
+      return json({ ok: false, error: "A separate read-only dashboard secret is not configured" }, 503);
+    }
     if (request.headers.get("Authorization") !== `Bearer ${env.CONTROL_READ_SECRET}`) {
       return new Response("Unauthorized", { status: 401 });
     }
