@@ -22,10 +22,10 @@ test("hosted config, Worker and publisher workflows define no daily cap or publi
     "../../.github/workflows/publish-audio.yml",
   ];
   const audioWorkflow = await read("../../.github/workflows/publish-audio.yml");
-  assert.match(audioWorkflow, /vars\\.ENABLE_AUDIO_PUBLISH == 'true'/);
-  assert.doesNotMatch(audioWorkflow, /vars\\.ENABLE_PRODUCTION_PUBLISH/);
+  assert.match(audioWorkflow, /vars\.ENABLE_AUDIO_PUBLISH == 'true'/);
+  assert.doesNotMatch(audioWorkflow, /vars\.ENABLE_PRODUCTION_PUBLISH/);
   const videoWorkflow = await read("../../.github/workflows/publish.yml");
-  assert.match(videoWorkflow, /vars\\.ENABLE_PRODUCTION_PUBLISH == 'true'/);
+  assert.match(videoWorkflow, /vars\.ENABLE_PRODUCTION_PUBLISH == 'true'/);
   for (const file of files) {
     assert.doesNotMatch(
       await read(file),
