@@ -35,7 +35,7 @@ Personal Telegram bot for collecting TikTok links or uploaded videos and automat
 
 ## Free scheduled deployment (Cloudflare + GitHub Actions)
 
-The hosted mode uses a Cloudflare Worker for the Telegram webhook and D1 for the queue. A public-repository GitHub Actions runner wakes every five minutes and processes up to five video/photo jobs per run. It downloads regular videos with yt-dlp and Photo Mode slides with gallery-dl, then publishes them through the Telegram Bot API. A separate workflow processes up to three optional audio jobs per run after video completion. The hosted Worker has no daily cap or 10:00–21:00 publishing window. Scheduled GitHub jobs can start late, so queue pickup is approximate rather than guaranteed to the exact minute. The `/publish` command marks the oldest queued item for priority; it does not start a runner immediately.
+The hosted mode uses a Cloudflare Worker for the Telegram webhook and D1 for the queue. A public-repository GitHub Actions runner wakes every five minutes and processes up to five video/photo jobs per run. It downloads regular videos with yt-dlp and Photo Mode slides with gallery-dl, then publishes them through the Telegram Bot API. A separate workflow processes up to three optional audio jobs per run after video completion. MP3 tasks remain recorded in D1, but their publisher is independently gated by `ENABLE_AUDIO_PUBLISH`; enabling video publication does not enable MP3 publication. The hosted Worker has no daily cap or time-of-day window. New TikTok links are deduplicated by canonical video ID or normalized URL. Pre-delivery transient failures are retried up to three total attempts with backoff; once Telegram sending may have started, automatic retry is prohibited and the job is marked for manual reconciliation. Scheduled GitHub jobs can start late, so queue pickup is approximate rather than guaranteed to the exact minute. The `/publish` command marks the oldest queued item for priority; it does not start a runner immediately.
 
 ### Required GitHub repository secrets
 
@@ -45,6 +45,9 @@ The hosted mode uses a Cloudflare Worker for the Telegram webhook and D1 for the
 - `OWNER_ID` — your numeric Telegram user ID.
 - `TELEGRAM_WEBHOOK_SECRET` — random secret, 32+ characters.
 - `WORKER_API_SECRET` — a different random secret, 32+ characters.
+- `CONTROL_READ_SECRET` — optional separate 32+ character read-only dashboard key.
+- `ENABLE_PRODUCTION_PUBLISH` — GitHub Actions repository variable; set to `true` only after production approval.
+- `ENABLE_AUDIO_PUBLISH` — independent GitHub Actions repository variable for MP3 publishing; leave unset/false while video publishing is being recovered.
 - `WORKER_API_URL` — the deployed Worker URL, stored as a GitHub Actions secret.
 
 For immediate automatic dispatch on each incoming TikTok link and the owner-only **Опубликовать сейчас** button, configure the Worker secret `GITHUB_ACTIONS_TOKEN` with a fine-grained GitHub token scoped to this repository and **Actions: write** permission. The Worker dispatches only `publish.yml` on `main`; never put this token in GitHub workflow logs or repository files. If the secret is absent, new links are queued and the button only prioritizes its job; scheduled processing remains the fallback. GitHub-hosted runner startup and TikTok download time still mean this is not guaranteed to be instantaneous.
