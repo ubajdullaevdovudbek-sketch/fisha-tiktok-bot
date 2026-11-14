@@ -124,6 +124,21 @@ class D1MigrationSqliteTests(unittest.TestCase):
         }
         self.assertIn("idx_audio_jobs_queue", audio_indexes)
 
+    def test_video_source_key_is_unique_and_existing_rows_are_not_backfilled(self):
+        self.migrate()
+        self.assertIsNone(
+            self.db.execute("SELECT source_key FROM videos WHERE id=41").fetchone()[0]
+        )
+        self.db.execute(
+            "INSERT INTO videos(kind, source_url, source_key, tiktok_video_id) "
+            "VALUES('tiktok_url', 'https://tiktok.test/video/900', 'tt:900', '900')"
+        )
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.db.execute(
+                "INSERT INTO videos(kind, source_url, source_key, tiktok_video_id) "
+                "VALUES('tiktok_url', 'https://vm.tiktok.com/abc', 'tt:900', '900')"
+            )
+
     def test_migrated_schema_matches_current_schema_sql(self):
         """Guards against schema.sql and migrations drifting apart."""
         self.migrate()
