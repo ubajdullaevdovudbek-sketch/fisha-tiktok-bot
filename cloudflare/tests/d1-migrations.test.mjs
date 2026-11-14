@@ -10,6 +10,7 @@ const migrationFiles = [
   "0003_audio_jobs.sql",
   "0004_photo_album_progress.sql",
   "0005_photo_batch_reconciliation.sql",
+  "0006_video_retry_and_dedupe.sql",
 ].map((name) => new URL(`../migrations/${name}`, import.meta.url));
 
 async function runSql(db, file) {
@@ -64,7 +65,7 @@ test("ordered migrations on a legacy D1 keep the existing video and add the new 
     const video = await db
       .prepare(
         "SELECT id, kind, source_url, status, source_author, source_caption, " +
-          "publishing_started_at, album_next_offset, album_pending_offset, album_total_count FROM videos WHERE id=41"
+          "publishing_started_at, album_next_offset, album_pending_offset, album_total_count, attempt_count, next_attempt_at, source_key, tiktok_video_id FROM videos WHERE id=41"
       )
       .first();
     assert.deepEqual(video, {
@@ -78,6 +79,10 @@ test("ordered migrations on a legacy D1 keep the existing video and add the new 
       album_next_offset: 0,
       album_pending_offset: null,
       album_total_count: null,
+      attempt_count: 0,
+      next_attempt_at: null,
+      source_key: null,
+      tiktok_video_id: null,
     });
 
     const after = await columnNames(db, "videos");
@@ -85,6 +90,10 @@ test("ordered migrations on a legacy D1 keep the existing video and add the new 
     assert.ok(after.includes("album_next_offset"));
     assert.ok(after.includes("album_pending_offset"));
     assert.ok(after.includes("album_total_count"));
+    assert.ok(after.includes("attempt_count"));
+    assert.ok(after.includes("next_attempt_at"));
+    assert.ok(after.includes("source_key"));
+    assert.ok(after.includes("tiktok_video_id"));
     assert.equal((await columnNames(db, "audio_jobs")).length, 12);
 
     const { results: indexes } = await db.prepare("PRAGMA index_list(audio_jobs)").all();
