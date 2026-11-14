@@ -785,3 +785,109 @@ test("Photo Mode reconciliation permits only retrying or skipping the pending ba
     assert.deepEqual(updateValues, [20, 17, 10, 23]);
   } finally { globalThis.fetch = originalFetch; }
 });
+
+
+test("uploaded Telegram videos request an immediate publisher run", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  const env = {
+    TELEGRAM_WEBHOOK_SECRET: "webhook-secret",
+    OWNER_ID: "100",
+    GITHUB_ACTIONS_TOKEN: "github-token",
+    DB: {
+      prepare(sql) {
+        assert.match(sql, /INSERT INTO videos/);
+        return {
+          bind() { return this; },
+          async run() { return { meta: { changes: 1, last_row_id: 81 } }; },
+        };
+      },
+    },
+  };
+  globalThis.fetch = async (url, options = {}) => {
+    calls.push({ url: String(url), options });
+    if (String(url).includes("/actions/workflows/publish.yml/dispatches")) {
+      return new Response(null, { status: 204 });
+    }
+    return new Response(JSON.stringify({ ok: true, result: {} }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+  try {
+    const response = await worker.fetch(
+      new Request("https://example.test/telegram/webhook", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "X-Telegram-Bot-Api-Secret-Token": "webhook-secret",
+        },
+        body: JSON.stringify({
+          message: {
+            chat: { id: 100 },
+            from: { id: 100 },
+            video: { file_id: "telegram-file-123" },
+          },
+        }),
+      }),
+      env,
+    );
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { ok: true, dispatched: true });
+    assert.equal(calls.filter(call => call.url.includes("/actions/workflows/publish.yml/dispatches")).length, 1);
+    const dispatch = calls.find(call => call.url.includes("/actions/workflows/publish.yml/dispatches"));
+    assert.equal(dispatch.options.method, "POST");
+    assert.deepEqual(JSON.parse(dispatch.options.body), { ref: "main" });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("owner /publish command requests an immediate publisher run", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  const env = {
+    TELEGRAM_WEBHOOK_SECRET: "webhook-secret",
+    OWNER_ID: "100",
+    GITHUB_ACTIONS_TOKEN: "github-token",
+    DB: {
+      prepare(sql) {
+        assert.match(sql, /UPDATE videos SET force_publish=1/);
+        return {
+          bind() { return this; },
+          async run() { return { meta: { changes: 1 } }; },
+        };
+      },
+    },
+  };
+  globalThis.fetch = async (url, options = {}) => {
+    calls.push({ url: String(url), options });
+    if (String(url).includes("/actions/workflows/publish.yml/dispatches")) {
+      return new Response(null, { status: 204 });
+    }
+    return new Response(JSON.stringify({ ok: true, result: {} }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+  try {
+    const response = await worker.fetch(
+      new Request("https://example.test/telegram/webhook", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "X-Telegram-Bot-Api-Secret-Token": "webhook-secret",
+        },
+        body: JSON.stringify({
+          message: { chat: { id: 100 }, from: { id: 100 }, text: "/publish" },
+        }),
+      }),
+      env,
+    );
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { ok: true, dispatched: true });
+    assert.equal(calls.filter(call => call.url.includes("/actions/workflows/publish.yml/dispatches")).length, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
