@@ -15,6 +15,7 @@ MIGRATIONS = [
     MIGRATIONS_DIR / "0003_audio_jobs.sql",
     MIGRATIONS_DIR / "0004_photo_album_progress.sql",
     MIGRATIONS_DIR / "0005_photo_batch_reconciliation.sql",
+    MIGRATIONS_DIR / "0006_video_retry_and_dedupe.sql",
 ]
 
 
@@ -98,7 +99,7 @@ class D1MigrationSqliteTests(unittest.TestCase):
         self.assertEqual(
             video,
             (41, "tiktok_url", "https://tiktok.test/video/41", "published",
-             "creator", "existing caption", None, 0, None, None),
+             "creator", "existing caption", None, 0, None, None, 0, None, None, None),
         )
 
         columns = {
@@ -108,6 +109,10 @@ class D1MigrationSqliteTests(unittest.TestCase):
         self.assertIn("album_next_offset", columns)
         self.assertIn("album_pending_offset", columns)
         self.assertIn("album_total_count", columns)
+        self.assertIn("attempt_count", columns)
+        self.assertIn("next_attempt_at", columns)
+        self.assertIn("source_key", columns)
+        self.assertIn("tiktok_video_id", columns)
 
         audio_table = self.db.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='audio_jobs'"
