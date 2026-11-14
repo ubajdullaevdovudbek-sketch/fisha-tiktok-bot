@@ -2,6 +2,7 @@ import json
 import mimetypes
 import os
 import tempfile
+import time
 from contextlib import ExitStack
 from pathlib import Path
 from urllib.parse import urljoin
@@ -192,12 +193,16 @@ def publish_photos(paths: list[Path], caption: str, before_send=None,
 
 
 def process_one() -> bool:
+    claim_started = time.monotonic()
     job_response = api("/api/claim")
+    print(f"[timing] queue claim: {time.monotonic() - claim_started:.2f}s")
     if not job_response:
         return False
 
     job = job_response["job"]
     job_id = int(job["id"])
+    job_started = time.monotonic()
+    print(f"[timing] job #{job_id} started; kind={job.get('kind')}")
 
     try:
         with tempfile.TemporaryDirectory(prefix="fisha-video-") as tmp:
@@ -211,13 +216,17 @@ def process_one() -> bool:
             def mark_delivery_started():
                 nonlocal delivery_started
                 if not delivery_started:
+                    started = time.monotonic()
                     api("/api/started", {"id": job_id})
+                    print(f"[timing] job #{job_id} delivery marker: {time.monotonic() - started:.2f}s")
                     delivery_started = True
 
             if job["kind"] == "tiktok_url":
                 source_url = job["source_url"]
                 try:
+                    started = time.monotonic()
                     resolved_url = resolve_tiktok_url(source_url)
+                    print(f"[timing] job #{job_id} URL resolution: {time.monotonic() - started:.2f}s")
                 except requests.RequestException as exc:
                     # Never let short-link resolution block the primary video
                     # path: yt-dlp can resolve TikTok short links itself.
@@ -243,19 +252,27 @@ def process_one() -> bool:
                     )
                     print(f"Published TikTok photo carousel #{job_id} ({len(photos)} images)")
                 else:
+                    started = time.monotonic()
                     path, metadata = download_tiktok(resolved_url, folder)
+                    print(f"[timing] job #{job_id} TikTok download: {time.monotonic() - started:.2f}s; bytes={path.stat().st_size}")
                     author = str(metadata.get("uploader") or metadata.get("creator") or author)
                     caption = caption or str(metadata.get("description") or metadata.get("title") or "")
                     final_caption = make_caption(caption, author)
+                    started = time.monotonic()
                     publish(path, final_caption, before_send=mark_delivery_started)
+                    print(f"[timing] job #{job_id} Telegram video upload: {time.monotonic() - started:.2f}s; bytes={path.stat().st_size}")
                     print(f"Published video #{job_id}")
                     # Defer optional MP3 until the video job is durably completed.
                     audio_title = caption.strip() or str(metadata.get("title") or "TikTok audio")
                     audio_task = {"kind": "tiktok_url", "source_url": source_url, "title": audio_title}
             elif job["kind"] == "telegram_file":
                 path = folder / f"telegram_{job_id}.mp4"
+                started = time.monotonic()
                 telegram_file(job["telegram_file_id"], path)
+                print(f"[timing] job #{job_id} Telegram source download: {time.monotonic() - started:.2f}s; bytes={path.stat().st_size}")
+                started = time.monotonic()
                 publish(path, make_caption(caption, author), before_send=mark_delivery_started)
+                print(f"[timing] job #{job_id} Telegram channel upload: {time.monotonic() - started:.2f}s; bytes={path.stat().st_size}")
                 # Defer optional MP3 until the video job is durably completed.
                 audio_task = {"kind": "telegram_file", "telegram_file_id": job["telegram_file_id"], "title": caption.strip() or f"Telegram video {job_id}"}
             else:
@@ -266,11 +283,15 @@ def process_one() -> bool:
             completion = {"id": job_id}
             if audio_task:
                 completion["audio_task"] = audio_task
+            started = time.monotonic()
             api("/api/complete", completion)
+            print(f"[timing] job #{job_id} queue completion: {time.monotonic() - started:.2f}s")
             if audio_task:
                 print(f"Queued optional MP3 extraction for video #{job_id}")
+        print(f"[timing] job #{job_id} total: {time.monotonic() - job_started:.2f}s")
         return True
     except Exception as exc:
+        print(f"[timing] job #{job_id} failed after {time.monotonic() - job_started:.2f}s")
         print(f"Job #{job_id} failed; continuing with the next queue item: {exc}")
         try:
             api("/api/fail", {"id": job_id, "error": str(exc)[:500]})
