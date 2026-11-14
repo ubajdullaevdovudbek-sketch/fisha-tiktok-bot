@@ -137,6 +137,7 @@ test("re-running an ALTER migration fails instead of silently duplicating a colu
     await assert.rejects(runSql(db, migrationFiles[0]), /duplicate column/i);
     await assert.rejects(runSql(db, migrationFiles[2]), /duplicate column/i);
     await assert.rejects(runSql(db, migrationFiles[3]), /duplicate column/i);
+    await assert.rejects(runSql(db, migrationFiles[4]), /duplicate column/i);
   } finally {
     await mf.dispose();
   }
