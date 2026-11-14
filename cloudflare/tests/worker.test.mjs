@@ -282,7 +282,9 @@ test("claim recovers stale processing jobs differently before and after delivery
   );
   assert.equal(response.status, 204);
   assert.match(statements[0], /publishing_started_at IS NULL/);
-  assert.match(statements[0], /status='queued'/);
+  assert.match(statements[0], /THEN 'queued'/);
+  assert.match(statements[0], /attempt_count < 3/);
+  assert.match(statements[0], /next_attempt_at=NULL/);
   assert.match(statements[1], /publishing_started_at IS NOT NULL/);
   assert.match(statements[1], /status='failed'/);
   assert.match(statements[1], /UNCERTAIN DELIVERY/);
