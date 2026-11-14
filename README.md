@@ -51,6 +51,14 @@ The hosted mode uses a Cloudflare Worker for the Telegram webhook and D1 for the
 
 For immediate automatic dispatch on each incoming TikTok link and the owner-only **Опубликовать сейчас** button, configure the Worker secret `GITHUB_ACTIONS_TOKEN` with a fine-grained GitHub token scoped to this repository and **Actions: write** permission. The Worker dispatches only `publish.yml` on `main`; never put this token in GitHub workflow logs or repository files. If the secret is absent, new links are queued and the button only prioritizes its job; scheduled processing remains the fallback. GitHub-hosted runner startup and TikTok download time still mean this is not guaranteed to be instantaneous.
 
+Set Worker-only secrets manually after an explicitly approved deployment; the deploy workflow does not write secrets:
+```sh
+cd cloudflare
+npx wrangler@4 secret put CONTROL_READ_SECRET --config wrangler.toml
+npx wrangler@4 secret put GITHUB_ACTIONS_TOKEN --config wrangler.toml
+```
+Use a random `CONTROL_READ_SECRET` of at least 32 characters, different from the webhook and publisher API secrets. The dashboard remains read-only; the publisher token is never sent to the browser.
+
 The destination channel is currently configured as the public username `@zadrot1705` in the publisher workflow, so a separate `CHANNEL_ID` secret is optional. You can override it by adding that secret.
 
 ### Cloudflare resources
