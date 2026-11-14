@@ -2,7 +2,7 @@ name: tests
 on:
   workflow_dispatch:
   push:
-    branches: [main, feature/fast-photo-carousel-no-daily-cap]
+    branches: [main, feature/fast-photo-carousel-no-daily-cap, fix/video-pipeline-recovery]
   pull_request:
     branches: [main]
 jobs:
@@ -14,7 +14,7 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -r requirements.txt
-      - name: D1 migration checks (SQLite, ordered 0002-0004 on exact pre-0002 baseline)
+      - name: D1 migration checks (SQLite, ordered 0002-0006 on exact pre-0002 baseline)
         run: python -m unittest tests.test_d1_migrations_sqlite tests.test_d1_lifecycle_sqlite -v
       - run: python -m unittest discover -s tests -v
 

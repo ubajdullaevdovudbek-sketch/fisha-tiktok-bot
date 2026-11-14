@@ -62,9 +62,24 @@ function localParts(date, timeZone) {
   return Object.fromEntries(parts.filter(p => p.type !== "literal").map(p => [p.type, p.value]));
 }
 
-function minutes(value) {
-  const [h, m] = String(value).split(":").map(Number);
-  return h * 60 + m;
+
+function parseTikTokIdentity(input) {
+  const match = String(input || "").match(/(?:https?:\/\/)?(?:www\.|m\.|vm\.|vt\.)?tiktok\.com\/[^\s<>"']+/i);
+  if (!match) return null;
+  let raw = match[0].replace(/[),.!?;]+$/g, "");
+  if (!/^https?:\/\//i.test(raw)) raw = "https://" + raw;
+  let parsed;
+  try { parsed = new URL(raw); } catch { return null; }
+  const host = parsed.hostname.toLowerCase().replace(/^www\./, "");
+  if (!(host === "tiktok.com" || host.endsWith(".tiktok.com"))) return null;
+  const path = parsed.pathname.replace(/\/+$/g, "") || "/";
+  const videoId = path.match(/\/video\/(\d+)/i)?.[1] || null;
+  const sourceKey = videoId ? `tt:${videoId}` : `url:${host}${path.toLowerCase()}`;
+  return { url: parsed.toString(), sourceKey, videoId };
+}
+
+function isRetryableBeforeDelivery(message) {
+  return /timeout|timed out|temporar|connection|network|reset|econn|dns|\b429\b|\b5\d\d\b|rate.?limit|remote end closed|incomplete read|socket|try again|\b502\b|\b503\b|\b504\b/i.test(String(message || ""));
 }
 
 async function handleTelegram(request, env) {
@@ -144,7 +159,7 @@ async function handleTelegram(request, env) {
 
   if (text === "/queue") {
     const result = await env.DB.prepare(
-      "SELECT id, kind, created_at FROM videos WHERE status='queued' ORDER BY force_publish DESC, id LIMIT 20"
+      "SELECT id, kind, created_at, attempt_count, next_attempt_at FROM videos WHERE status='queued' ORDER BY force_publish DESC, id LIMIT 20"
     ).all();
     const rows = result.results || [];
     await reply(env, chatId, rows.length
@@ -168,10 +183,13 @@ async function handleTelegram(request, env) {
       "UPDATE videos SET force_publish=1 WHERE id=(SELECT id FROM videos WHERE status='queued' ORDER BY id LIMIT 1)"
     ).run();
     durableSideEffectCommitted = Boolean(result.meta?.changes);
+    const dispatch = result.meta?.changes ? await dispatchPublisher(env) : { dispatched: false };
     await reply(env, chatId, result.meta?.changes
-      ? "Следующее задание поднято в начало очереди. Обработчик заберёт его при ближайшем запуске GitHub Actions; расписание может задержаться."
+      ? dispatch.dispatched
+        ? "Следующее задание поднято в начало очереди; немедленный запуск обработчика запрошен."
+        : "Следующее задание поднято в начало очереди. Его подхватит плановый обработчик; немедленный запуск требует GITHUB_ACTIONS_TOKEN."
       : "Очередь пуста.");
-    return json({ ok: true });
+    return json({ ok: true, dispatched: dispatch.dispatched });
   }
 
   if (text === "/retry-photo" || text.startsWith("/retry-photo ")) {
@@ -199,7 +217,7 @@ async function handleTelegram(request, env) {
       return json({ ok: true });
     }
     const result = await env.DB.prepare(
-      "UPDATE videos SET status='queued', claimed_at=NULL, publishing_started_at=NULL, album_next_offset=?, album_pending_offset=NULL, error=NULL WHERE id=? AND status='failed' AND album_pending_offset=? AND album_total_count=?"
+      "UPDATE videos SET status='queued', claimed_at=NULL, publishing_started_at=NULL, attempt_count=0, next_attempt_at=NULL, album_next_offset=?, album_pending_offset=NULL, error=NULL WHERE id=? AND status='failed' AND album_pending_offset=? AND album_total_count=?"
     ).bind(nextOffset, id, pending, total).run();
     durableSideEffectCommitted = Boolean(result.meta?.changes);
     await reply(env, chatId, result.meta?.changes
@@ -218,7 +236,7 @@ async function handleTelegram(request, env) {
       return json({ ok: true });
     }
     const result = await env.DB.prepare(
-      "UPDATE videos SET status='queued', claimed_at=NULL, publishing_started_at=NULL, error=NULL WHERE id=? AND status='failed' AND album_pending_offset IS NULL AND (error IS NULL OR error NOT LIKE 'UNCERTAIN DELIVERY:%' OR ?=1)"
+      "UPDATE videos SET status='queued', claimed_at=NULL, publishing_started_at=NULL, attempt_count=0, next_attempt_at=NULL, error=NULL WHERE id=? AND status='failed' AND album_pending_offset IS NULL AND (error IS NULL OR error NOT LIKE 'UNCERTAIN DELIVERY:%' OR ?=1)"
     ).bind(id, confirmUncertain ? 1 : 0).run();
     durableSideEffectCommitted = Boolean(result.meta?.changes);
     await reply(env, chatId, result.meta?.changes
@@ -251,14 +269,41 @@ async function handleTelegram(request, env) {
       "INSERT INTO videos(kind, telegram_file_id, source_caption) VALUES('telegram_file', ?, ?)"
     ).bind(message.video.file_id, message.caption || "").run();
     durableSideEffectCommitted = true;
-    await reply(env, chatId, "Видео принято в очередь.");
-    return json({ ok: true });
+    const dispatch = await dispatchPublisher(env);
+    await reply(env, chatId, dispatch.dispatched
+      ? "Видео принято. Немедленный запуск обработчика запрошен."
+      : "Видео принято в очередь. Его подхватит плановый обработчик.");
+    return json({ ok: true, dispatched: dispatch.dispatched });
   }
 
   if (text.includes("tiktok.com/")) {
+    const identity = parseTikTokIdentity(text);
+    if (!identity) {
+      await reply(env, chatId, "Не удалось разобрать ссылку TikTok. Пришли полную ссылку ещё раз.");
+      return json({ ok: true });
+    }
+    const duplicate = await env.DB.prepare(
+      "SELECT id, status FROM videos WHERE source_key=? OR (? IS NOT NULL AND tiktok_video_id=?) OR (? IS NOT NULL AND source_url LIKE ?) ORDER BY CASE status WHEN 'queued' THEN 0 WHEN 'processing' THEN 1 WHEN 'published' THEN 2 ELSE 3 END, id DESC LIMIT 1"
+    ).bind(identity.sourceKey, identity.videoId, identity.videoId, identity.videoId,
+      identity.videoId ? `%/video/${identity.videoId}%` : null).first();
+    if (duplicate) {
+      durableSideEffectCommitted = true;
+      await reply(env, chatId, `Эта ссылка уже есть в системе: задание #${duplicate.id} (статус: ${duplicate.status}). Повторно не добавляю.`);
+      return json({ ok: true, duplicate: true, id: duplicate.id });
+    }
     const inserted = await env.DB.prepare(
-      "INSERT INTO videos(kind, source_url) VALUES('tiktok_url', ?)"
-    ).bind(text).run();
+      "INSERT OR IGNORE INTO videos(kind, source_url, source_key, tiktok_video_id) VALUES('tiktok_url', ?, ?, ?)"
+    ).bind(identity.url, identity.sourceKey, identity.videoId).run();
+    if (!inserted.meta?.changes) {
+      const existing = await env.DB.prepare(
+        "SELECT id, status FROM videos WHERE source_key=? LIMIT 1"
+      ).bind(identity.sourceKey).first();
+      durableSideEffectCommitted = true;
+      await reply(env, chatId, existing
+        ? `Эта ссылка уже есть: задание #${existing.id} (статус: ${existing.status}). Повторно не добавляю.`
+        : "Ссылка уже была добавлена параллельно. Повторно не добавляю.");
+      return json({ ok: true, duplicate: true, id: existing?.id || null });
+    }
     durableSideEffectCommitted = true;
     const jobId = Number(inserted.meta?.last_row_id);
     const keyboard = Number.isSafeInteger(jobId) && jobId > 0 ? {
@@ -266,12 +311,12 @@ async function handleTelegram(request, env) {
     } : null;
     const dispatch = await dispatchPublisher(env);
     const statusText = dispatch.dispatched
-      ? "Ссылка принята. Я запросил внеплановый запуск обработчика — публикация начнётся после старта GitHub Actions и загрузки видео."
+      ? "Ссылка принята. Запросил немедленный запуск обработчика; обычно это быстрее пяти минут, но старт GitHub Actions и загрузка TikTok зависят от внешних сервисов."
       : dispatch.reason === "token_missing"
-        ? "Ссылка принята и поставлена в очередь. Сейчас обработчик запустится по расписанию; для запуска сразу ещё нужен секрет GITHUB_ACTIONS_TOKEN в Worker."
-        : "Ссылка принята и поставлена в очередь. Не удалось запросить внеплановый запуск, поэтому её подхватит плановый обработчик.";
+        ? "Ссылка принята и поставлена в очередь. Её подхватит обработчик по расписанию; для немедленного запуска нужен Worker secret GITHUB_ACTIONS_TOKEN."
+        : "Ссылка принята и поставлена в очередь. Не удалось запросить внеплановый запуск; её подхватит плановый обработчик.";
     await reply(env, chatId, statusText, keyboard);
-    return json({ ok: true, dispatched: dispatch.dispatched });
+    return json({ ok: true, dispatched: dispatch.dispatched, id: jobId });
   }
 
   await reply(env, chatId, "Пришли ссылку TikTok или видеофайл.");
@@ -293,33 +338,130 @@ async function handleTelegram(request, env) {
 }
 
 async function claimJob(env) {
-  // Recover claims abandoned by a timed-out or terminated GitHub Actions runner.
+  // A runner abandoned before Telegram send can be retried, but only three
+  // total claims are allowed. Once delivery starts, never retry automatically.
   await env.DB.prepare(
-    "UPDATE videos SET status='queued', claimed_at=NULL WHERE status='processing' AND publishing_started_at IS NULL AND claimed_at IS NOT NULL AND julianday(claimed_at) < julianday('now', '-20 minutes')"
+    "UPDATE videos SET status=CASE WHEN attempt_count < 3 THEN 'queued' ELSE 'failed' END, claimed_at=NULL, next_attempt_at=NULL, error=CASE WHEN attempt_count < 3 THEN 'Runner stopped before Telegram delivery; retry scheduled' ELSE 'Retry limit reached after runner stopped before Telegram delivery' END WHERE status='processing' AND publishing_started_at IS NULL AND claimed_at IS NOT NULL AND julianday(claimed_at) < julianday('now', '-20 minutes')"
   ).run();
   await env.DB.prepare(
-    "UPDATE videos SET status='failed', claimed_at=NULL, error='UNCERTAIN DELIVERY: runner stopped after Telegram delivery started; check the channel before /retry' WHERE status='processing' AND publishing_started_at IS NOT NULL AND julianday(publishing_started_at) < julianday('now', '-20 minutes')"
+    "UPDATE videos SET status='failed', claimed_at=NULL, next_attempt_at=NULL, error='UNCERTAIN DELIVERY: runner stopped after Telegram delivery started; check the channel before /retry' WHERE status='processing' AND publishing_started_at IS NOT NULL AND julianday(publishing_started_at) < julianday('now', '-20 minutes')"
   ).run();
 
-  // Honor the owner's /publish command before normal FIFO queue order.
   const candidate = await env.DB.prepare(
-    "SELECT * FROM videos WHERE status='queued' ORDER BY force_publish DESC, id LIMIT 1"
+    "SELECT * FROM videos WHERE status='queued' AND (next_attempt_at IS NULL OR julianday(next_attempt_at) <= julianday('now')) ORDER BY force_publish DESC, id LIMIT 1"
   ).first();
   if (!candidate) return null;
 
   const changed = await env.DB.prepare(
-    "UPDATE videos SET status='processing', force_publish=0, claimed_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'), error=NULL WHERE id=? AND status='queued'"
+    "UPDATE videos SET status='processing', force_publish=0, attempt_count=attempt_count+1, next_attempt_at=NULL, claimed_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'), error=NULL WHERE id=? AND status='queued' AND (next_attempt_at IS NULL OR julianday(next_attempt_at) <= julianday('now'))"
   ).bind(candidate.id).run();
   if (!changed.meta?.changes) return null;
   return candidate;
 }
 
+const controlPage = `<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>Fisha Bot — панель</title>
+<style>
+:root{color-scheme:dark;font-family:system-ui,sans-serif;background:#10141b;color:#eef2f7}
+body{max-width:850px;margin:0 auto;padding:24px}
+h1{font-size:25px}h2{font-size:18px;margin:0 0 12px}
+.card{background:#1b2330;border:1px solid #303b4c;border-radius:14px;padding:16px;margin:14px 0}
+input,button{font:inherit;border-radius:9px;padding:11px}
+input{width:min(100%,420px);box-sizing:border-box;background:#0e141d;color:white;border:1px solid #46546a}
+button{background:#8ab4ff;color:#101722;border:0;font-weight:700;cursor:pointer;margin:8px 0}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px}
+.metric{background:#111923;padding:12px;border-radius:10px}.num{font-size:25px;font-weight:700}
+.muted{color:#aab6c7;font-size:13px}.item{padding:10px 0;border-top:1px solid #303b4c;overflow-wrap:anywhere}
+.error{color:#ff9b9b} .ok{color:#9fe0b2}
+</style>
+</head>
+<body>
+<h1>Fisha TikTok → Telegram</h1>
+<p class="muted">Панель только для просмотра. Она не публикует видео и не меняет очередь.</p>
+<section class="card">
+<h2>Подключение</h2>
+<input id="key" type="password" autocomplete="off" placeholder="Отдельный ключ панели (CONTROL_READ_SECRET)">
+<br><button id="connect">Подключиться</button>
+<button id="refresh" hidden>Обновить</button>
+<p id="message" class="muted" aria-live="polite">Ключ используется только в памяти этой вкладки и не сохраняется.</p>
+</section>
+<div id="dashboard" hidden>
+<section class="card"><h2>Состояние</h2><div id="metrics" class="grid"></div><p id="schedule" class="muted"></p></section>
+<section class="card"><h2>Очередь и ошибки</h2><div id="items"></div></section>
+</div>
+<script>
+let readKey="";
+const el=id=>document.getElementById(id);
+function say(t,kind="muted"){el("message").textContent=t;el("message").className=kind}
+async function api(path){
+ const r=await fetch(path,{headers:{Authorization:"Bearer "+readKey},cache:"no-store"});
+ if(!r.ok) throw new Error(r.status===503?"Доступ панели ещё не настроен на сервере.":r.status===401?"Неверный ключ панели.":"Ошибка сервера: "+r.status);
+ return r.json();
+}
+async function load(){
+ try{
+  const [s,q]=await Promise.all([api("/api/control/status"),api("/api/control/queue")]);
+  const labels={queued:"В очереди",processing:"В обработке",published:"Опубликовано всего",failed:"С ошибками","published_today":"Опубликовано сегодня"};
+  el("metrics").innerHTML=Object.entries(labels).map(([k,v])=>'<div class="metric"><div class="muted">'+v+'</div><div class="num">'+(s.counts[k]??0)+'</div></div>').join("");
+  el("schedule").textContent="Режим: публикация без временного окна и дневного лимита · "+s.timezone;
+  el("items").innerHTML=q.items.length?q.items.map(x=>'<div class="item"><b>#'+x.id+' · '+x.status+'</b><div class="muted">'+x.kind+' · '+(x.created_at||"")+'</div>'+(x.error?'<div class="error">'+String(x.error).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]))+'</div>':"")+'</div>').join(""):'<p class="muted">Нет ожидающих или ошибочных видео.</p>';
+  el("dashboard").hidden=false;el("refresh").hidden=false;say("Данные обновлены.","ok");
+ }catch(e){el("dashboard").hidden=true;say(e.message,"error")}
+}
+el("connect").addEventListener("click",()=>{readKey=el("key").value.trim();if(!readKey){say("Введите ключ панели.","error");return}load()});
+el("refresh").addEventListener("click",load);
+window.addEventListener("pagehide",()=>{readKey="";el("key").value=""});
+</script>
+</body></html>`;
+
 async function api(request, env, path) {
-  if (!env.WORKER_API_SECRET ||
+  if (path === "/api/control/status" || path === "/api/control/queue") {
+    if (!env.CONTROL_READ_SECRET ||
+        env.CONTROL_READ_SECRET === env.WORKER_API_SECRET ||
+        env.CONTROL_READ_SECRET === env.TELEGRAM_WEBHOOK_SECRET) {
+      return json({ ok: false, error: "A separate read-only dashboard secret is not configured" }, 503);
+    }
+    if (request.headers.get("Authorization") !== `Bearer ${env.CONTROL_READ_SECRET}`) {
+      return new Response("Unauthorized", { status: 401 });
+    }
+  } else if (!env.WORKER_API_SECRET ||
       request.headers.get("Authorization") !== `Bearer ${env.WORKER_API_SECRET}`) {
     return new Response("Unauthorized", { status: 401 });
   }
 
+  if (path === "/api/control/status" && request.method === "GET") {
+    const result = await env.DB.prepare("SELECT status, COUNT(*) AS n FROM videos GROUP BY status").all();
+    const counts = Object.fromEntries((result.results || []).map(row => [row.status, Number(row.n)]));
+    const local = localParts(new Date(), env.TIMEZONE || "Asia/Tashkent");
+    const today = `${local.year}-${local.month}-${local.day}`;
+    const publishedToday = await env.DB.prepare(
+      "SELECT COUNT(*) AS n FROM videos WHERE status='published' AND published_local_date=?"
+    ).bind(today).first();
+    return json({
+      ok: true,
+      timezone: env.TIMEZONE || "Asia/Tashkent",
+      schedule: { mode: "unrestricted" },
+      counts: {
+        queued: counts.queued || 0,
+        processing: counts.processing || 0,
+        published: counts.published || 0,
+        failed: counts.failed || 0,
+        published_today: Number(publishedToday?.n || 0),
+      },
+    });
+  }
+
+  if (path === "/api/control/queue" && request.method === "GET") {
+    const result = await env.DB.prepare(
+      "SELECT id, kind, status, created_at, published_at, error, attempt_count, next_attempt_at FROM videos WHERE status IN ('queued','processing','failed') ORDER BY id DESC LIMIT 30"
+    ).all();
+    return json({ ok: true, items: result.results || [] });
+  }
 
   if (path === "/api/audio/enqueue" && request.method === "POST") {
     const body = await request.json();
@@ -482,9 +624,11 @@ async function api(request, env, path) {
     const body = await request.json();
     const id = Number(body.id);
     if (!Number.isSafeInteger(id) || id < 1) return json({ ok: false, error: "Invalid video ID" }, 400);
+    const errorText = String(body.error || "Unknown error").slice(0, 450);
+    const retryable = isRetryableBeforeDelivery(errorText);
     const result = await env.DB.prepare(
-      "UPDATE videos SET status='failed', claimed_at=NULL, error=CASE WHEN publishing_started_at IS NOT NULL THEN 'UNCERTAIN DELIVERY: ' || ? ELSE ? END WHERE id=? AND status='processing'"
-    ).bind(String(body.error || "Unknown error").slice(0, 450), String(body.error || "Unknown error").slice(0, 500), id).run();
+      "UPDATE videos SET status=CASE WHEN publishing_started_at IS NULL AND attempt_count < 3 AND ?=1 THEN 'queued' ELSE 'failed' END, claimed_at=NULL, next_attempt_at=CASE WHEN publishing_started_at IS NULL AND attempt_count < 3 AND ?=1 THEN strftime('%Y-%m-%dT%H:%M:%fZ','now', CASE attempt_count WHEN 1 THEN '+1 minute' ELSE '+5 minutes' END) ELSE NULL END, error=CASE WHEN publishing_started_at IS NULL AND attempt_count < 3 AND ?=1 THEN 'RETRY SCHEDULED: ' || ? WHEN publishing_started_at IS NOT NULL THEN 'UNCERTAIN DELIVERY: ' || ? ELSE ? END WHERE id=? AND status='processing'"
+    ).bind(retryable ? 1 : 0, retryable ? 1 : 0, retryable ? 1 : 0, errorText, errorText, errorText, id).run();
     if (!result.meta?.changes) return json({ ok: false, error: "Video is not currently processing" }, 409);
     return json({ ok: true });
   }
@@ -496,10 +640,27 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     if (url.pathname === "/health") return json({ ok: true, service: "fisha-tiktok-bot" });
-    if (url.pathname === "/telegram/webhook" && request.method === "POST") {
-      return handleTelegram(request, env);
+    if (url.pathname === "/control" && request.method === "GET") {
+      return new Response(controlPage, {
+        headers: {
+          "content-type": "text/html; charset=utf-8",
+          "cache-control": "no-store",
+          "x-content-type-options": "nosniff",
+          "referrer-policy": "no-referrer",
+          "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+        },
+      });
     }
+    if (url.pathname === "/telegram/webhook" && request.method === "POST") return handleTelegram(request, env);
     if (url.pathname.startsWith("/api/")) return api(request, env, url.pathname);
     return new Response("Not found", { status: 404 });
+  },
+  async scheduled(_controller, env, ctx) {
+    ctx.waitUntil((async () => {
+      const queued = await env.DB.prepare(
+        "SELECT id FROM videos WHERE status='queued' AND (next_attempt_at IS NULL OR julianday(next_attempt_at) <= julianday('now')) AND NOT EXISTS (SELECT 1 FROM videos WHERE status='processing') LIMIT 1"
+      ).first();
+      if (queued) await dispatchPublisher(env);
+    })());
   },
 };

@@ -15,6 +15,7 @@ MIGRATIONS = [
     MIGRATIONS_DIR / "0003_audio_jobs.sql",
     MIGRATIONS_DIR / "0004_photo_album_progress.sql",
     MIGRATIONS_DIR / "0005_photo_batch_reconciliation.sql",
+    MIGRATIONS_DIR / "0006_video_retry_and_dedupe.sql",
 ]
 
 
@@ -93,12 +94,12 @@ class D1MigrationSqliteTests(unittest.TestCase):
 
         video = self.db.execute(
             "SELECT id, kind, source_url, status, source_author, source_caption, "
-            "publishing_started_at, album_next_offset, album_pending_offset, album_total_count FROM videos WHERE id=41"
+            "publishing_started_at, album_next_offset, album_pending_offset, album_total_count, attempt_count, next_attempt_at, source_key, tiktok_video_id FROM videos WHERE id=41"
         ).fetchone()
         self.assertEqual(
             video,
             (41, "tiktok_url", "https://tiktok.test/video/41", "published",
-             "creator", "existing caption", None, 0, None, None),
+             "creator", "existing caption", None, 0, None, None, 0, None, None, None),
         )
 
         columns = {
@@ -108,6 +109,10 @@ class D1MigrationSqliteTests(unittest.TestCase):
         self.assertIn("album_next_offset", columns)
         self.assertIn("album_pending_offset", columns)
         self.assertIn("album_total_count", columns)
+        self.assertIn("attempt_count", columns)
+        self.assertIn("next_attempt_at", columns)
+        self.assertIn("source_key", columns)
+        self.assertIn("tiktok_video_id", columns)
 
         audio_table = self.db.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='audio_jobs'"
@@ -118,6 +123,21 @@ class D1MigrationSqliteTests(unittest.TestCase):
             row[1] for row in self.db.execute("PRAGMA index_list(audio_jobs)").fetchall()
         }
         self.assertIn("idx_audio_jobs_queue", audio_indexes)
+
+    def test_video_source_key_is_unique_and_existing_rows_are_not_backfilled(self):
+        self.migrate()
+        self.assertIsNone(
+            self.db.execute("SELECT source_key FROM videos WHERE id=41").fetchone()[0]
+        )
+        self.db.execute(
+            "INSERT INTO videos(kind, source_url, source_key, tiktok_video_id) "
+            "VALUES('tiktok_url', 'https://tiktok.test/video/900', 'tt:900', '900')"
+        )
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.db.execute(
+                "INSERT INTO videos(kind, source_url, source_key, tiktok_video_id) "
+                "VALUES('tiktok_url', 'https://vm.tiktok.com/abc', 'tt:900', '900')"
+            )
 
     def test_migrated_schema_matches_current_schema_sql(self):
         """Guards against schema.sql and migrations drifting apart."""
@@ -184,7 +204,7 @@ class D1MigrationSqliteTests(unittest.TestCase):
 
     def test_reapplying_an_alter_migration_fails_instead_of_duplicating(self):
         self.migrate()
-        for migration in (MIGRATIONS[0], MIGRATIONS[2], MIGRATIONS[3]):
+        for migration in (MIGRATIONS[0], MIGRATIONS[2], MIGRATIONS[3], MIGRATIONS[4]):
             with self.subTest(migration=migration.name):
                 with self.assertRaises(sqlite3.OperationalError):
                     self.db.executescript(migration.read_text(encoding="utf-8"))
