@@ -372,6 +372,8 @@ test("failure after delivery starts is explicitly marked as uncertain", async ()
   assert.match(sqlSeen, /UNCERTAIN DELIVERY:/);
   assert.match(sqlSeen, /status='processing'/);
   assert.deepEqual(values, [
+    1, 1, 1,
+    "Telegram connection timed out",
     "Telegram connection timed out",
     "Telegram connection timed out",
     17,
@@ -433,7 +435,7 @@ test("reply failure after queue insertion keeps the webhook dedupe key", async (
         return {
           bind() { return this; },
           async run() {
-            if (sql.startsWith("INSERT INTO videos")) return { meta: { changes: 1 } };
+            if (sql.startsWith("INSERT OR IGNORE INTO videos")) return { meta: { changes: 1, last_row_id: 77 } };
             return { meta: { changes: 1 } };
           },
         };
@@ -838,4 +840,99 @@ test("control dashboard requires its separate read-only secret", async () => {
   const page = await worker.fetch(new Request("https://example.test/control"), env);
   assert.equal(page.status, 200);
   assert.match(page.headers.get("content-security-policy"), /frame-ancestors 'none'/);
+});
+
+
+
+test("TikTok links are deduplicated against existing video IDs without backfilling history", async () => {
+  const statements = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify({ ok: true, result: {} }), {
+    status: 200, headers: { "content-type": "application/json" },
+  });
+  const env = {
+    TELEGRAM_WEBHOOK_SECRET: "webhook-secret",
+    OWNER_ID: "100",
+    DB: {
+      prepare(sql) {
+        statements.push(sql);
+        return {
+          bind(...args) { this.values = args; return this; },
+          async run() { return { meta: { changes: 1 } }; },
+          async first() {
+            if (sql.startsWith("SELECT id, status FROM videos")) return { id: 12, status: "published" };
+            return null;
+          },
+        };
+      },
+    },
+  };
+  try {
+    const response = await worker.fetch(new Request("https://example.test/telegram/webhook", {
+      method: "POST",
+      headers: { "content-type": "application/json", "X-Telegram-Bot-Api-Secret-Token": "webhook-secret" },
+      body: JSON.stringify({
+        update_id: 901,
+        message: {
+          chat: { id: 100 }, from: { id: 100 },
+          text: "https://www.tiktok.com/@demo/video/123456?lang=en",
+        },
+      }),
+    }), env);
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { ok: true, duplicate: true, id: 12 });
+    assert.ok(statements.some(sql => sql.includes("source_key=?") && sql.includes("tiktok_video_id=?")));
+    assert.ok(!statements.some(sql => sql.startsWith("INSERT OR IGNORE INTO videos")));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("new TikTok links store canonical video IDs and dispatch only after durable enqueue", async () => {
+  const statements = [];
+  let insertedValues = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify({ ok: true, result: {} }), {
+    status: 200, headers: { "content-type": "application/json" },
+  });
+  const env = {
+    TELEGRAM_WEBHOOK_SECRET: "webhook-secret",
+    OWNER_ID: "100",
+    DB: {
+      prepare(sql) {
+        statements.push(sql);
+        return {
+          bind(...args) { this.values = args; return this; },
+          async run() {
+            if (sql.startsWith("INSERT OR IGNORE INTO videos")) {
+              insertedValues = this.values;
+              return { meta: { changes: 1, last_row_id: 77 } };
+            }
+            return { meta: { changes: 1 } };
+          },
+          async first() { return null; },
+        };
+      },
+    },
+  };
+  try {
+    const response = await worker.fetch(new Request("https://example.test/telegram/webhook", {
+      method: "POST",
+      headers: { "content-type": "application/json", "X-Telegram-Bot-Api-Secret-Token": "webhook-secret" },
+      body: JSON.stringify({
+        update_id: 902,
+        message: {
+          chat: { id: 100 }, from: { id: 100 },
+          text: "https://www.tiktok.com/@demo/video/123456?lang=en",
+        },
+      }),
+    }), env);
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { ok: true, dispatched: false, id: 77 });
+    assert.match(statements.find(sql => sql.startsWith("INSERT OR IGNORE INTO videos")), /source_key, tiktok_video_id/);
+    assert.equal(insertedValues[1], "tt:123456");
+    assert.equal(insertedValues[2], "123456");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
