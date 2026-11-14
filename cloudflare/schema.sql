@@ -14,6 +14,10 @@ CREATE TABLE IF NOT EXISTS videos (
   album_next_offset INTEGER NOT NULL DEFAULT 0,
   album_pending_offset INTEGER,
   album_total_count INTEGER,
+  attempt_count INTEGER NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
+  next_attempt_at TEXT,
+  source_key TEXT,
+  tiktok_video_id TEXT,
 
   published_at TEXT,
   published_local_date TEXT,
@@ -22,6 +26,9 @@ CREATE TABLE IF NOT EXISTS videos (
 
 CREATE INDEX IF NOT EXISTS idx_videos_queue ON videos(status, id);
 CREATE INDEX IF NOT EXISTS idx_videos_published_day ON videos(status, published_local_date);
+CREATE INDEX IF NOT EXISTS idx_videos_retry_queue ON videos(status, next_attempt_at, id);
+CREATE INDEX IF NOT EXISTS idx_videos_tiktok_video_id ON videos(tiktok_video_id) WHERE tiktok_video_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_videos_source_key_unique ON videos(source_key) WHERE source_key IS NOT NULL;
 
 
 -- Prevent duplicate queue entries when Telegram retries webhook updates.
