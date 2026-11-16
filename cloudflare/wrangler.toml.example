@@ -9,3 +9,6 @@ TIMEZONE = "Asia/Tashkent"
 binding = "DB"
 database_name = "fisha-tiktok-queue"
 database_id = "REPLACE_WITH_D1_DATABASE_ID"
+
+[triggers]
+crons = ["*/5 * * * *"]

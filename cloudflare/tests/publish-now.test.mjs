@@ -129,6 +129,7 @@ test("new TikTok links request an immediate publisher run when the token is conf
         return {
           bind() { return this; },
           async run() { return { meta: { changes: 1, last_row_id: 44 } }; },
+          async first() { return null; },
         };
       },
     },
@@ -153,7 +154,7 @@ test("new TikTok links request an immediate publisher run when the token is conf
       env,
     );
     assert.equal(response.status, 200);
-    assert.ok(statements.some(sql => sql.includes("INSERT INTO videos(kind, source_url)")));
+    assert.ok(statements.some(sql => sql.includes("INSERT OR IGNORE INTO videos") && sql.includes("source_key, tiktok_video_id")));
     const dispatch = requests.find(item => item.url.includes("api.github.com"));
     assert.ok(dispatch, "new TikTok links should dispatch the publisher");
     assert.ok(dispatch.url.endsWith("/actions/workflows/publish.yml/dispatches"));
@@ -182,6 +183,7 @@ test("new TikTok links stay queued on schedule when the dispatch token is missin
         return {
           bind() { return this; },
           async run() { return { meta: { changes: 1, last_row_id: 45 } }; },
+          async first() { return null; },
         };
       },
     },

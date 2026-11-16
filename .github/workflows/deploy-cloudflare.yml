@@ -46,7 +46,7 @@ jobs:
           set -euo pipefail
           CLOUDFLARE_API_TOKEN="$(printf '%s' "$CLOUDFLARE_API_TOKEN" | tr -d '[:space:]')"
           export CLOUDFLARE_API_TOKEN
-          SQL="SELECT CASE WHEN (SELECT COUNT(*) FROM pragma_table_info('videos') WHERE name IN ('publishing_started_at','album_next_offset','album_pending_offset','album_total_count')) = 4 AND EXISTS (SELECT 1 FROM sqlite_master WHERE type='table' AND name='audio_jobs') THEN 'SCHEMA_READY' ELSE 'SCHEMA_NOT_READY' END AS release_gate;"
+          SQL="SELECT CASE WHEN (SELECT COUNT(*) FROM pragma_table_info('videos') WHERE name IN ('publishing_started_at','album_next_offset','album_pending_offset','album_total_count','attempt_count','next_attempt_at','source_key','tiktok_video_id')) = 8 AND EXISTS (SELECT 1 FROM sqlite_master WHERE type='table' AND name='audio_jobs') THEN 'SCHEMA_READY' ELSE 'SCHEMA_NOT_READY' END AS release_gate;"
           OUTPUT="$(npx --yes wrangler@4 d1 execute fisha-tiktok-queue --remote --command "$SQL" 2>&1)"
           printf '%s\\n' "$OUTPUT"
           if ! grep -Eq 'SCHEMA_READY([[:space:]]|$)' <<<"$OUTPUT"; then
@@ -67,8 +67,12 @@ jobs:
 
       - name: Verify Worker health
         env:
-          WORKER_URL: https://fisha-tiktok-bot.ubajdullaevbek.workers.dev
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           set -euo pipefail
+          RESPONSE="$(curl -fsS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/subdomain")"
+          SUBDOMAIN="$(printf '%s' "$RESPONSE" | jq -er 'select(.success == true) | .result.subdomain')"
+          WORKER_URL="https://fisha-tiktok-bot.$SUBDOMAIN.workers.dev"
           curl --retry 5 --retry-delay 2 --retry-connrefused -fsS "$WORKER_URL/health" | jq -e '.ok == true' >/dev/null
           echo "Worker health check passed."

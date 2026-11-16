@@ -60,6 +60,10 @@ def download_video(job, folder):
         "outtmpl": str(target),
         "format": "best[ext=mp4]/best",
         "noplaylist": True,
+        "socket_timeout": 30,
+        "retries": 3,
+        "fragment_retries": 3,
+        "extractor_retries": 2,
         "quiet": True,
         "no_warnings": True,
     }
