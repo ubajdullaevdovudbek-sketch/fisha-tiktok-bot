@@ -660,7 +660,13 @@ export default {
       const queued = await env.DB.prepare(
         "SELECT id FROM videos WHERE status='queued' AND (next_attempt_at IS NULL OR julianday(next_attempt_at) <= julianday('now')) AND NOT EXISTS (SELECT 1 FROM videos WHERE status='processing') LIMIT 1"
       ).first();
-      if (queued) await dispatchPublisher(env);
+      // A runner that died mid-job leaves a 'processing' row. Only /api/claim
+      // recovers it, so the cron must also wake the publisher for stale claims;
+      // otherwise the queue stays blocked until the GitHub schedule fires.
+      const stale = queued ? null : await env.DB.prepare(
+        "SELECT id FROM videos WHERE status='processing' AND julianday(COALESCE(publishing_started_at, claimed_at)) < julianday('now', '-20 minutes') LIMIT 1"
+      ).first();
+      if (queued || stale) await dispatchPublisher(env);
     })());
   },
 };

@@ -945,3 +945,40 @@ test("new TikTok links store canonical video IDs and dispatch only after durable
     globalThis.fetch = originalFetch;
   }
 });
+
+test("scheduled cron wakes the publisher for stale processing claims but not for fresh ones", async () => {
+  const originalFetch = globalThis.fetch;
+  async function runCron({ due, stale }) {
+    const dispatches = [];
+    globalThis.fetch = async (url) => {
+      dispatches.push(String(url));
+      return new Response(null, { status: 204 });
+    };
+    const env = {
+      GITHUB_ACTIONS_TOKEN: "github-actions-token",
+      DB: {
+        prepare(sql) {
+          return {
+            first: async () => {
+              if (sql.includes("status='queued'")) return due ? { id: 1 } : null;
+              if (sql.includes("status='processing'") && sql.includes("-20 minutes")) return stale ? { id: 2 } : null;
+              throw new Error(`unexpected SQL: ${sql}`);
+            },
+          };
+        },
+      },
+    };
+    const pending = [];
+    await worker.scheduled({}, env, { waitUntil: (promise) => pending.push(promise) });
+    await Promise.all(pending);
+    return dispatches;
+  }
+  try {
+    assert.equal((await runCron({ due: false, stale: true })).length, 1);
+    assert.ok((await runCron({ due: false, stale: true }))[0].endsWith("/workflows/publish.yml/dispatches"));
+    assert.equal((await runCron({ due: true, stale: false })).length, 1);
+    assert.equal((await runCron({ due: false, stale: false })).length, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
