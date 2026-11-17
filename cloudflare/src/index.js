@@ -499,10 +499,10 @@ async function api(request, env, path) {
     // preventing it from racing the media publisher and breaking pair order.
     const candidate = videoId !== null
       ? await env.DB.prepare(
-          "SELECT * FROM audio_jobs WHERE status='queued' AND video_id=? ORDER BY id LIMIT 1"
+          "SELECT audio_jobs.*, CASE WHEN videos.source_url LIKE '%/photo/%' THEN 'фотоальбому' ELSE 'видео' END AS media_label FROM audio_jobs JOIN videos ON videos.id=audio_jobs.video_id WHERE audio_jobs.status='queued' AND audio_jobs.video_id=? ORDER BY audio_jobs.id LIMIT 1"
         ).bind(videoId).first()
       : await env.DB.prepare(
-          "SELECT * FROM audio_jobs WHERE status='queued' AND julianday(created_at) <= julianday('now', '-10 minutes') ORDER BY id LIMIT 1"
+          "SELECT audio_jobs.*, CASE WHEN videos.source_url LIKE '%/photo/%' THEN 'фотоальбому' ELSE 'видео' END AS media_label FROM audio_jobs JOIN videos ON videos.id=audio_jobs.video_id WHERE audio_jobs.status='queued' AND julianday(audio_jobs.created_at) <= julianday('now', '-10 minutes') ORDER BY audio_jobs.id LIMIT 1"
         ).first();
     if (!candidate) return new Response(null, { status: 204 });
     const changed = await env.DB.prepare(
