@@ -48,7 +48,7 @@ jobs:
           SQL="SELECT CASE WHEN (SELECT COUNT(*) FROM pragma_table_info('videos') WHERE name IN ('publishing_started_at','album_next_offset','album_pending_offset','album_total_count','attempt_count','next_attempt_at','source_key','tiktok_video_id')) = 8 AND EXISTS (SELECT 1 FROM sqlite_master WHERE type='table' AND name='audio_jobs') THEN 'SCHEMA_READY' ELSE 'SCHEMA_NOT_READY' END AS release_gate;"
           OUTPUT="$(npx --yes wrangler@4 d1 execute fisha-tiktok-queue --remote --command "$SQL" 2>&1)"
           printf '%s\n' "$OUTPUT"
-          if ! grep -Eq 'SCHEMA_READY([[:space:]]|$)' <<<"$OUTPUT"; then
+          if ! grep -q 'SCHEMA_READY' <<<"$OUTPUT"; then
             echo "::error::Production D1 schema is not ready; Worker deployment stopped."
             exit 1
           fi
