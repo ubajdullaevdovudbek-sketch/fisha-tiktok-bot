@@ -102,7 +102,7 @@ def download_tiktok_photos(url: str, target_dir: Path) -> list[Path]:
 
 def find_tiktok_audio_track(target_dir: Path) -> Path | None:
     """Return the soundtrack file downloaded by gallery-dl for a Photo Mode post."""
-    audio_extensions = {".mp3", ".m4a", ".aac", ".wav", ".ogg", ".opus", ".flac"}
+    audio_extensions = {".mp3", ".m4a", ".aac", ".wav", ".ogg", ".opus", ".flac", ".mp4", ".m4v", ".webm", ".mkv"}
     candidates = [
         path for path in target_dir.iterdir()
         if path.is_file() and path.suffix.lower() in audio_extensions
