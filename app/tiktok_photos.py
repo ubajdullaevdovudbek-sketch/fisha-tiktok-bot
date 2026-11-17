@@ -55,7 +55,7 @@ def download_tiktok_photos(url: str, target_dir: Path) -> list[Path]:
         "--filename", "{num:03}.{extension}",
         "-o", "extractor.tiktok.photos=true",
         "-o", "extractor.tiktok.covers=false",
-        "-o", "extractor.tiktok.audio=false",
+        "-o", "extractor.tiktok.audio=true",
         "-o", "extractor.tiktok.videos=false",
         url,
     ]
@@ -97,3 +97,15 @@ def download_tiktok_photos(url: str, target_dir: Path) -> list[Path]:
     if not photos:
         raise TikTokPhotoDownloadError("TikTok Photo Mode returned no images; the post may be unavailable or contain no downloadable slides")
     return photos
+
+
+
+def find_tiktok_audio_track(target_dir: Path) -> Path | None:
+    """Return the soundtrack file downloaded by gallery-dl for a Photo Mode post."""
+    audio_extensions = {".mp3", ".m4a", ".aac", ".wav", ".ogg", ".opus", ".flac"}
+    candidates = [
+        path for path in target_dir.iterdir()
+        if path.is_file() and path.suffix.lower() in audio_extensions
+    ]
+    candidates.sort(key=lambda path: path.name)
+    return candidates[0] if candidates else None
