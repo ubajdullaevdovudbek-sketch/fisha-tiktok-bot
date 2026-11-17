@@ -76,7 +76,7 @@ test("stale audio claims are requeued only before delivery starts", async () => 
 test("paired audio claim is restricted to its parent video", async () => {
   const { response, db } = await invoke("/api/audio/claim", { body: { video_id: 27 } });
   assert.equal(response.status, 204);
-  assert.match(db.calls[2].sql, /audio_jobs\\.status='queued' AND audio_jobs\\.video_id=\\?/);
+  assert.match(db.calls[2].sql, /audio_jobs\.status='queued' AND audio_jobs\.video_id=\?/);
   assert.deepEqual(db.calls[2].values, [27]);
 });
 
