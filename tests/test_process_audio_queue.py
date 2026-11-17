@@ -54,8 +54,8 @@ class AudioQueueTests(unittest.TestCase):
         def extract(source, target):
             target.write_bytes(b"mp3")
             return target
-        def send(path, title):
-            events.append(("telegram-send", title))
+        def send(path, title, caption=""):
+            events.append(("telegram-send", title, caption))
         with patch.object(audio_queue, "api", side_effect=api), \
              patch.object(audio_queue, "download_video", side_effect=download), \
              patch.object(audio_queue, "extract_audio_mp3", side_effect=extract), \
