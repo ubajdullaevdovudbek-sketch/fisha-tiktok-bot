@@ -118,8 +118,8 @@ def process_one(video_id=None, source_path=None, media_label="видео"):
             api("/api/audio/started", {"id": job_id})
             parent_id = int(job.get("video_id") or video_id or 0)
             label = media_label if video_id is not None else job.get("media_label") or "видео"
-            caption = f"🎵 Аудио к {label} #{parent_id}" if parent_id else "🎵 Аудио из TikTok"
-            send_audio(mp3, job.get("title") or "TikTok audio", caption=caption)
+            # Keep the audio post clean: publish the MP3 without a caption.
+            send_audio(mp3, job.get("title") or "TikTok audio")
         api("/api/audio/complete", {"id": job_id})
         print(f"Completed audio job #{job_id}")
     except Exception as exc:
