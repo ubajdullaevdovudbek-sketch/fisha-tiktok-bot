@@ -12,7 +12,8 @@ import yt_dlp
 from app.audio import extract_audio_mp3
 from app.photo_validation import validate_telegram_photo
 from app.queue_runner import process_batch
-from app.tiktok_photos import download_tiktok_photos, is_tiktok_photo_url, resolve_tiktok_url
+from app.tiktok_photos import download_tiktok_photos, find_tiktok_audio_track, is_tiktok_photo_url, resolve_tiktok_url
+from scripts.process_audio_queue import process_one as process_audio_for_video
 
 
 API_URL = os.environ["WORKER_API_URL"].rstrip("/")
@@ -211,6 +212,8 @@ def process_one() -> bool:
 
             delivery_started = False
             audio_task = None
+            audio_source_path = None
+            audio_media_label = "видео"
 
             def mark_delivery_started():
                 nonlocal delivery_started
@@ -230,6 +233,8 @@ def process_one() -> bool:
 
                 if is_tiktok_photo_url(resolved_url):
                     photos = download_tiktok_photos(resolved_url, folder)
+                    audio_source_path = find_tiktok_audio_track(folder)
+                    audio_media_label = "фотоальбому"
                     saved_offset = int(job.get("album_next_offset") or 0)
                     publish_photos(
                         photos,
@@ -246,12 +251,18 @@ def process_one() -> bool:
                         ),
                     )
                     print(f"Published TikTok photo carousel #{job_id} ({len(photos)} images)")
+                    if audio_source_path:
+                        audio_task = {"kind": "tiktok_url", "source_url": source_url, "title": caption.strip() or f"TikTok photo post {job_id}"}
+                        print(f"Found soundtrack for Photo Mode job #{job_id}")
+                    else:
+                        print(f"No downloadable soundtrack found for Photo Mode job #{job_id}")
                 else:
                     path, metadata = download_tiktok(resolved_url, folder)
                     author = str(metadata.get("uploader") or metadata.get("creator") or author)
                     caption = caption or str(metadata.get("description") or metadata.get("title") or "")
                     final_caption = make_caption(caption, author)
                     publish(path, final_caption, before_send=mark_delivery_started)
+                    audio_source_path = path
                     print(f"Published video #{job_id}")
                     # Defer optional MP3 until the video job is durably completed.
                     audio_title = caption.strip() or str(metadata.get("title") or "TikTok audio")
@@ -260,7 +271,8 @@ def process_one() -> bool:
                 path = folder / f"telegram_{job_id}.mp4"
                 telegram_file(job["telegram_file_id"], path)
                 publish(path, make_caption(caption, author), before_send=mark_delivery_started)
-                # Defer optional MP3 until the video job is durably completed.
+                audio_source_path = path
+                # Persist the optional MP3 task with video completion.
                 audio_task = {"kind": "telegram_file", "telegram_file_id": job["telegram_file_id"], "title": caption.strip() or f"Telegram video {job_id}"}
             else:
                 raise RuntimeError(f"Unsupported job type: {job['kind']}")
@@ -272,7 +284,12 @@ def process_one() -> bool:
                 completion["audio_task"] = audio_task
             api("/api/complete", completion)
             if audio_task:
-                print(f"Queued optional MP3 extraction for video #{job_id}")
+                print(f"Queued MP3 for {audio_media_label} #{job_id}; publishing it before the next media item")
+                process_audio_for_video(
+                    video_id=job_id,
+                    source_path=audio_source_path,
+                    media_label=audio_media_label,
+                )
         return True
     except Exception as exc:
         print(f"Job #{job_id} failed; continuing with the next queue item: {exc}")
