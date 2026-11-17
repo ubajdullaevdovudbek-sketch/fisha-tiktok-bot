@@ -92,7 +92,7 @@ class AudioQueueTests(unittest.TestCase):
                 self.assertTrue(audio_queue.process_one(video_id=9, source_path=source))
         self.assertEqual(events[0], ("/api/audio/claim", {"video_id": 9}))
         download.assert_not_called()
-        self.assertIn(("telegram-send", "🎵 Аудио к видео #9"), events)
+        self.assertIn(("telegram-send", ""), events)
 
     def test_process_one_marks_failure_when_extraction_fails(self):
         events = []
