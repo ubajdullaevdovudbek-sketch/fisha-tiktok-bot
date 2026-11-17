@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from app.tiktok_photos import is_tiktok_photo_url, download_tiktok_photos
+from app.tiktok_photos import is_tiktok_photo_url, download_tiktok_photos, find_tiktok_audio_track
 
 
 class TikTokPhotoTests(unittest.TestCase):
@@ -33,6 +33,7 @@ class TikTokPhotoTests(unittest.TestCase):
             folder = Path(command[command.index("--directory") + 1])
             (folder / "002.jpg").write_bytes(b"second")
             (folder / "001.jpg").write_bytes(b"first")
+            (folder / "soundtrack.m4a").write_bytes(b"audio")
             (folder / "notes.txt").write_text("ignore")
             return Result()
 
@@ -43,7 +44,13 @@ class TikTokPhotoTests(unittest.TestCase):
             command = runner.call_args.args[0]
             self.assertIn("{num:03}.{extension}", command)
             self.assertIn("extractor.tiktok.photos=true", command)
-            self.assertIn("extractor.tiktok.audio=false", command)
+            self.assertIn("extractor.tiktok.audio=true", command)
+            self.assertEqual(find_tiktok_audio_track(Path(tmp)).name, "soundtrack.m4a")
+
+    def test_audio_track_lookup_returns_none_when_photo_has_no_soundtrack(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            Path(tmp, "001.jpg").write_bytes(b"image")
+            self.assertIsNone(find_tiktok_audio_track(Path(tmp)))
 
     def test_raises_when_gallery_dl_fails(self):
         class Result:
