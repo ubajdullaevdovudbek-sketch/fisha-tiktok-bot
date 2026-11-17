@@ -83,10 +83,12 @@ class AudioQueueTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / "parent.mp4"
             source.write_bytes(b"video")
-            with patch.object(audio_queue, "api", side_effect=api), \\
-                 patch.object(audio_queue, "download_video") as download, \\
-                 patch.object(audio_queue, "extract_audio_mp3", side_effect=extract), \\
-                 patch.object(audio_queue, "send_audio", side_effect=send):
+            with (
+                patch.object(audio_queue, "api", side_effect=api),
+                patch.object(audio_queue, "download_video") as download,
+                patch.object(audio_queue, "extract_audio_mp3", side_effect=extract),
+                patch.object(audio_queue, "send_audio", side_effect=send),
+            ):
                 self.assertTrue(audio_queue.process_one(video_id=9, source_path=source))
         self.assertEqual(events[0], ("/api/audio/claim", {"video_id": 9}))
         download.assert_not_called()
