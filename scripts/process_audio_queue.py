@@ -7,6 +7,7 @@ import requests
 import yt_dlp
 
 from app.audio import extract_audio_mp3
+from app.tiktok_photos import download_tiktok_photos, find_tiktok_audio_track, is_tiktok_photo_url
 
 
 API_URL = os.environ["WORKER_API_URL"].rstrip("/")
@@ -56,6 +57,12 @@ def download_video(job, folder):
     if job["kind"] == "telegram_file":
         download_telegram_file(job["telegram_file_id"], target)
         return target
+    if is_tiktok_photo_url(job["source_url"]):
+        download_tiktok_photos(job["source_url"], folder)
+        soundtrack = find_tiktok_audio_track(folder)
+        if soundtrack is None:
+            raise FileNotFoundError("TikTok Photo Mode post has no downloadable soundtrack")
+        return soundtrack
     options = {
         "outtmpl": str(target),
         "format": "best[ext=mp4]/best",
