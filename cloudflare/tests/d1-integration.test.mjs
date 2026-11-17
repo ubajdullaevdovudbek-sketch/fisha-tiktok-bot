@@ -203,7 +203,7 @@ test("real Worker + local D1: stale audio claim is recovered before audio send s
       "INSERT INTO videos(kind, source_url, status) VALUES('tiktok_url', 'https://tiktok.com/video/audio', 'published')"
     ).run();
     const inserted = await db.prepare(
-      "INSERT INTO audio_jobs(video_id, kind, source_url, status, claimed_at) VALUES(?, 'tiktok_url', 'https://tiktok.com/video/audio', 'processing', strftime('%Y-%m-%dT%H:%M:%fZ','now','-25 minutes'))"
+      "INSERT INTO audio_jobs(video_id, kind, source_url, status, created_at, claimed_at) VALUES(?, 'tiktok_url', 'https://tiktok.com/video/audio', 'processing', strftime('%Y-%m-%dT%H:%M:%fZ','now','-25 minutes'), strftime('%Y-%m-%dT%H:%M:%fZ','now','-25 minutes'))"
     ).bind(video.meta.last_row_id).run();
     const id = inserted.meta.last_row_id;
     const response = await api(mf, "/api/audio/claim", {});

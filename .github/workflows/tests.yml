@@ -2,7 +2,7 @@ name: tests
 on:
   workflow_dispatch:
   push:
-    branches: [main, feature/fast-photo-carousel-no-daily-cap, fix/video-pipeline-recovery]
+    branches: [main, feature/fast-photo-carousel-no-daily-cap, fix/video-pipeline-recovery, feature/paired-media-audio]
   pull_request:
     branches: [main]
 jobs:

@@ -73,6 +73,25 @@ test("stale audio claims are requeued only before delivery starts", async () => 
   assert.match(db.calls[1].sql, /UNCERTAIN DELIVERY/);
 });
 
+test("paired audio claim is restricted to its parent video", async () => {
+  const { response, db } = await invoke("/api/audio/claim", { body: { video_id: 27 } });
+  assert.equal(response.status, 204);
+  assert.ok(db.calls[2].sql.includes("audio_jobs.status='queued' AND audio_jobs.video_id=?"));
+  assert.deepEqual(db.calls[2].values, [27]);
+});
+
+test("fallback audio claim only sees jobs older than ten minutes", async () => {
+  const { response, db } = await invoke("/api/audio/claim");
+  assert.equal(response.status, 204);
+  assert.match(db.calls[2].sql, /created_at/);
+  assert.match(db.calls[2].sql, /-10 minutes/);
+});
+
+test("paired audio claim rejects invalid parent IDs", async () => {
+  const { response } = await invoke("/api/audio/claim", { body: { video_id: -1 } });
+  assert.equal(response.status, 400);
+});
+
 test("audio schema and migration both persist the delivery marker", async () => {
   const schema = await readFile(new URL("../../cloudflare/schema.sql", import.meta.url), "utf8");
   const migration = await readFile(new URL("../../cloudflare/migrations/0003_audio_jobs.sql", import.meta.url), "utf8");

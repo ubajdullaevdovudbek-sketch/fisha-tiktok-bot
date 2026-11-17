@@ -54,8 +54,8 @@ class AudioQueueTests(unittest.TestCase):
         def extract(source, target):
             target.write_bytes(b"mp3")
             return target
-        def send(path, title):
-            events.append(("telegram-send", title))
+        def send(path, title, caption=""):
+            events.append(("telegram-send", title, caption))
         with patch.object(audio_queue, "api", side_effect=api), \
              patch.object(audio_queue, "download_video", side_effect=download), \
              patch.object(audio_queue, "extract_audio_mp3", side_effect=extract), \
@@ -64,6 +64,35 @@ class AudioQueueTests(unittest.TestCase):
         names = [event[0] for event in events]
         self.assertLess(names.index("/api/audio/started"), names.index("telegram-send"))
         self.assertLess(names.index("telegram-send"), names.index("/api/audio/complete"))
+
+    def test_paired_audio_claims_parent_and_uses_local_media_without_redownload(self):
+        events = []
+        claim = {"job": {"id": 27, "video_id": 9, "kind": "tiktok_url",
+                         "source_url": "https://tiktok.invalid/9", "title": "sample"}}
+        def api(path, payload=None):
+            events.append((path, payload))
+            if path == "/api/audio/claim":
+                return claim
+            return {"ok": True}
+        def extract(source, target):
+            events.append(("extract", Path(source).name))
+            target.write_bytes(b"mp3")
+            return target
+        def send(path, title, caption=""):
+            events.append(("telegram-send", caption))
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "parent.mp4"
+            source.write_bytes(b"video")
+            with (
+                patch.object(audio_queue, "api", side_effect=api),
+                patch.object(audio_queue, "download_video") as download,
+                patch.object(audio_queue, "extract_audio_mp3", side_effect=extract),
+                patch.object(audio_queue, "send_audio", side_effect=send),
+            ):
+                self.assertTrue(audio_queue.process_one(video_id=9, source_path=source))
+        self.assertEqual(events[0], ("/api/audio/claim", {"video_id": 9}))
+        download.assert_not_called()
+        self.assertIn(("telegram-send", "🎵 Аудио к видео #9"), events)
 
     def test_process_one_marks_failure_when_extraction_fails(self):
         events = []

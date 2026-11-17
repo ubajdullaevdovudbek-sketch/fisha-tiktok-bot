@@ -489,9 +489,21 @@ async function api(request, env, path) {
     await env.DB.prepare(
       "UPDATE audio_jobs SET status='failed', claimed_at=NULL, error='UNCERTAIN DELIVERY: audio send started but runner stopped; check the channel before manual retry' WHERE status='processing' AND audio_started_at IS NOT NULL AND julianday(audio_started_at) < julianday('now', '-20 minutes')"
     ).run();
-    const candidate = await env.DB.prepare(
-      "SELECT * FROM audio_jobs WHERE status='queued' ORDER BY id LIMIT 1"
-    ).first();
+    const body = await request.json();
+    const videoId = body.video_id == null ? null : Number(body.video_id);
+    if (videoId !== null && (!Number.isSafeInteger(videoId) || videoId < 1)) {
+      return json({ ok: false, error: "Invalid parent video ID" }, 400);
+    }
+    // The paired publisher can claim its own soundtrack immediately. The
+    // standalone recovery workflow only sees jobs at least 10 minutes old,
+    // preventing it from racing the media publisher and breaking pair order.
+    const candidate = videoId !== null
+      ? await env.DB.prepare(
+          "SELECT audio_jobs.*, CASE WHEN audio_jobs.source_url LIKE '%/photo/%' THEN 'фотоальбому' ELSE 'видео' END AS media_label FROM audio_jobs JOIN videos ON videos.id=audio_jobs.video_id WHERE audio_jobs.status='queued' AND audio_jobs.video_id=? ORDER BY audio_jobs.id LIMIT 1"
+        ).bind(videoId).first()
+      : await env.DB.prepare(
+          "SELECT audio_jobs.*, CASE WHEN audio_jobs.source_url LIKE '%/photo/%' THEN 'фотоальбому' ELSE 'видео' END AS media_label FROM audio_jobs JOIN videos ON videos.id=audio_jobs.video_id WHERE audio_jobs.status='queued' AND julianday(audio_jobs.created_at) <= julianday('now', '-10 minutes') ORDER BY audio_jobs.id LIMIT 1"
+        ).first();
     if (!candidate) return new Response(null, { status: 204 });
     const changed = await env.DB.prepare(
       "UPDATE audio_jobs SET status='processing', claimed_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'), error=NULL WHERE id=? AND status='queued'"
