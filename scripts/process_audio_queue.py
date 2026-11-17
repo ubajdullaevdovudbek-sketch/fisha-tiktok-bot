@@ -116,8 +116,6 @@ def process_one(video_id=None, source_path=None, media_label="видео"):
             video = Path(source_path) if source_path is not None else download_video(job, folder)
             mp3 = extract_audio_mp3(video, folder / "audio.mp3")
             api("/api/audio/started", {"id": job_id})
-            parent_id = int(job.get("video_id") or video_id or 0)
-            label = media_label if video_id is not None else job.get("media_label") or "видео"
             # Keep the audio post clean: publish the MP3 without a caption.
             send_audio(mp3, job.get("title") or "TikTok audio")
         api("/api/audio/complete", {"id": job_id})
