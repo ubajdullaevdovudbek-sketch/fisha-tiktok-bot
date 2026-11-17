@@ -78,7 +78,7 @@ def download_video(job, folder):
     raise FileNotFoundError("Downloaded video for audio extraction was not found")
 
 
-def send_audio(path, title, before_send=None):
+def send_audio(path, title, caption="", before_send=None):
     if path.stat().st_size > 50 * 1024 * 1024:
         raise RuntimeError("Extracted MP3 exceeds Telegram's 50 MB audio limit")
     if before_send:
@@ -86,7 +86,7 @@ def send_audio(path, title, before_send=None):
     with path.open("rb") as audio:
         response = requests.post(
             f"https://api.telegram.org/bot{BOT_TOKEN}/sendAudio",
-            data={"chat_id": CHANNEL_ID, "title": title[:64] or "TikTok audio", "performer": "TikTok"},
+            data={"chat_id": CHANNEL_ID, "title": title[:64] or "TikTok audio", "performer": "TikTok", "caption": caption[:1024]},
             files={"audio": (path.name, audio, "audio/mpeg")},
             timeout=300,
         )
@@ -96,8 +96,9 @@ def send_audio(path, title, before_send=None):
         raise RuntimeError(result.get("description", "Telegram sendAudio failed"))
 
 
-def process_one():
-    claimed = api("/api/audio/claim")
+def process_one(video_id=None, source_path=None, media_label="видео"):
+    claim_payload = {"video_id": int(video_id)} if video_id is not None else {}
+    claimed = api("/api/audio/claim", claim_payload)
     if not claimed:
         return False
     job = claimed["job"]
@@ -105,10 +106,13 @@ def process_one():
     try:
         with tempfile.TemporaryDirectory(prefix="fisha-audio-") as tmp:
             folder = Path(tmp)
-            video = download_video(job, folder)
+            video = Path(source_path) if source_path is not None else download_video(job, folder)
             mp3 = extract_audio_mp3(video, folder / "audio.mp3")
             api("/api/audio/started", {"id": job_id})
-            send_audio(mp3, job.get("title") or "TikTok audio")
+            parent_id = int(job.get("video_id") or video_id or 0)
+            label = media_label if video_id is not None else "видео"
+            caption = f"🎵 Аудио к {label} #{parent_id}" if parent_id else "🎵 Аудио из TikTok"
+            send_audio(mp3, job.get("title") or "TikTok audio", caption=caption)
         api("/api/audio/complete", {"id": job_id})
         print(f"Completed audio job #{job_id}")
     except Exception as exc:
