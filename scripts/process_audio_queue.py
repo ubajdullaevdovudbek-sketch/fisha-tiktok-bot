@@ -110,7 +110,7 @@ def process_one(video_id=None, source_path=None, media_label="видео"):
             mp3 = extract_audio_mp3(video, folder / "audio.mp3")
             api("/api/audio/started", {"id": job_id})
             parent_id = int(job.get("video_id") or video_id or 0)
-            label = media_label if video_id is not None else "видео"
+            label = media_label if video_id is not None else job.get("media_label") or "видео"
             caption = f"🎵 Аудио к {label} #{parent_id}" if parent_id else "🎵 Аудио из TikTok"
             send_audio(mp3, job.get("title") or "TikTok audio", caption=caption)
         api("/api/audio/complete", {"id": job_id})
