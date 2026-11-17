@@ -252,7 +252,7 @@ def process_one() -> bool:
                     )
                     print(f"Published TikTok photo carousel #{job_id} ({len(photos)} images)")
                     if audio_source_path:
-                        audio_task = {"kind": "tiktok_url", "source_url": source_url, "title": caption.strip() or f"TikTok photo post {job_id}"}
+                        audio_task = {"kind": "tiktok_url", "source_url": resolved_url, "title": caption.strip() or f"TikTok photo post {job_id}"}
                         print(f"Found soundtrack for Photo Mode job #{job_id}")
                     else:
                         print(f"No downloadable soundtrack found for Photo Mode job #{job_id}")
