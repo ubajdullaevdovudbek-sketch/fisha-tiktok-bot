@@ -104,6 +104,7 @@ class PhotoAlbumResumeTests(unittest.TestCase):
             with patch.object(queue, "api", side_effect=fake_api), \
                  patch.object(queue, "resolve_tiktok_url", return_value="https://www.tiktok.com/@creator/photo/73"), \
                  patch.object(queue, "is_tiktok_photo_url", return_value=True), \
+                 patch.object(queue, "download_tiktok_live_photo_album", return_value=None), \
                  patch.object(queue, "download_tiktok_photos", return_value=photos), \
                  patch.object(queue, "validate_telegram_photo"), \
                  patch.object(queue.requests, "post", return_value=response) as post:
