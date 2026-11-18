@@ -333,8 +333,8 @@ def process_one() -> bool:
                     live_album = None
                     try:
                         live_album = download_tiktok_live_photo_album(resolved_url, folder / "live_album")
-                        if live_album is not None:
-                            validate_live_photo_album(live_album)
+                        # publish_photos preflights each slide and downgrades clips
+                        # that exceed native Live Photo limits to ordinary videos.
                     except Exception as exc:
                         # TikWM is an optional enhancement. Keep the existing
                         # gallery-dl path as a safe fallback for all failures,
