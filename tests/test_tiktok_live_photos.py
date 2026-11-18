@@ -82,8 +82,10 @@ class TikTokLivePhotoTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp, \
              patch("app.tiktok_live_photos.requests.post", return_value=self.response(payload)), \
              patch("app.tiktok_live_photos.requests.get", return_value=self.media_response("image/jpeg", b"still")):
-            with self.assertRaisesRegex(TikTokLivePhotoError, "Untrusted Live Photo URL"):
-                download_tiktok_live_photo_album("https://www.tiktok.com/@u/photo/123", Path(tmp))
+            album = download_tiktok_live_photo_album("https://www.tiktok.com/@u/photo/123", Path(tmp))
+
+        self.assertEqual([kind for kind, _ in album], ["photo"])
+        self.assertEqual(album[0][1].name, "slide_001.jpg")
 
     def test_rejects_non_mp4_motion_content(self):
         payload = {"code": 0, "data": {
@@ -96,8 +98,10 @@ class TikTokLivePhotoTests(unittest.TestCase):
                  self.media_response("image/jpeg", b"still"),
                  self.media_response("text/html", b"error"),
              ]):
-            with self.assertRaisesRegex(TikTokLivePhotoError, "Expected MP4"):
-                download_tiktok_live_photo_album("https://www.tiktok.com/@u/photo/123", Path(tmp))
+            album = download_tiktok_live_photo_album("https://www.tiktok.com/@u/photo/123", Path(tmp))
+
+        self.assertEqual([kind for kind, _ in album], ["photo"])
+        self.assertEqual(album[0][1].name, "slide_001.jpg")
 
     def test_rejects_motion_clip_over_telegram_safe_limit(self):
         payload = {"code": 0, "data": {
@@ -111,8 +115,11 @@ class TikTokLivePhotoTests(unittest.TestCase):
                  self.media_response("image/jpeg", b"still"),
                  self.media_response("video/mp4", b"123456"),
              ]):
-            with self.assertRaisesRegex(TikTokLivePhotoError, "48 MB"):
-                download_tiktok_live_photo_album("https://www.tiktok.com/@u/photo/123", Path(tmp))
+            album = download_tiktok_live_photo_album("https://www.tiktok.com/@u/photo/123", Path(tmp))
+
+        self.assertEqual([kind for kind, _ in album], ["photo"])
+        self.assertEqual(album[0][1].name, "slide_001.jpg")
+        self.assertFalse((Path(tmp) / "slide_001.mp4").exists())
 
 
 if __name__ == "__main__":
