@@ -1,8 +1,4 @@
-"""TikTok Photo Mode downloader with Live Photo motion clips via TikWM.
-
-Returns a mixed, slide-ordered album only when TikWM exposes a complete
-parallel images/live_images pair. Otherwise callers should use gallery-dl.
-"""
+"""TikTok Photo Mode downloader with native Telegram Live Photo pairs."""
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -28,15 +24,15 @@ def _trusted_media_url(value: object) -> str | None:
     return value
 
 
-def _download(url: str, target: Path) -> None:
+def _download(url: str, target: Path, expected: str) -> None:
     with requests.get(url, stream=True, timeout=REQUEST_TIMEOUT) as response:
         response.raise_for_status()
         content_type = response.headers.get("Content-Type", "").split(";", 1)[0].lower()
-        if target.suffix == ".mp4" and content_type and content_type not in {
+        if expected == "video" and content_type and content_type not in {
             "video/mp4", "application/octet-stream", "binary/octet-stream"
         }:
             raise TikTokLivePhotoError(f"Expected MP4 motion clip, received {content_type}")
-        if target.suffix != ".mp4" and content_type and not content_type.startswith("image/"):
+        if expected == "photo" and content_type and not content_type.startswith("image/"):
             raise TikTokLivePhotoError(f"Expected image slide, received {content_type}")
         with target.open("wb") as output:
             for chunk in response.iter_content(1024 * 256):
@@ -46,13 +42,12 @@ def _download(url: str, target: Path) -> None:
         raise TikTokLivePhotoError("TikWM returned an empty media file")
 
 
-def download_tiktok_live_photo_album(url: str, target_dir: Path) -> list[tuple[str, Path]] | None:
-    """Download a mixed Live Photo album; return None when the post has no motion data.
+def download_tiktok_live_photo_album(url: str, target_dir: Path) -> list[tuple[str, object]] | None:
+    """Return ordered ('photo', Path) or ('live_photo', (still_path, video_path)) slides.
 
-    Each result is (media_type, path), where media_type is 'photo' or 'video'.
     A complete index-aligned live_images array is required to avoid pairing a
-    motion clip with the wrong still image. Any failure is raised so the caller
-    can safely fall back to the existing gallery-dl photo-only path.
+    motion clip with the wrong still. Return None when no Live Photo data exists;
+    callers can then use the existing gallery-dl photo-only path.
     """
     try:
         response = requests.post(
@@ -86,22 +81,23 @@ def download_tiktok_live_photo_album(url: str, target_dir: Path) -> list[tuple[s
         )
 
     target_dir.mkdir(parents=True, exist_ok=True)
-    album: list[tuple[str, Path]] = []
+    album: list[tuple[str, object]] = []
     for index, image_url in enumerate(images):
+        still_url = _trusted_media_url(image_url)
+        if not still_url:
+            raise TikTokLivePhotoError(f"Untrusted image URL at slide {index + 1}")
+        still_path = target_dir / f"slide_{index + 1:03d}.jpg"
+        _download(still_url, still_path, "photo")
+
         motion_url = live_images[index]
         if motion_url:
-            media_url = _trusted_media_url(motion_url)
-            if not media_url:
+            motion_url = _trusted_media_url(motion_url)
+            if not motion_url:
                 raise TikTokLivePhotoError(f"Untrusted Live Photo URL at slide {index + 1}")
-            media_type, suffix = "video", ".mp4"
+            motion_path = target_dir / f"slide_{index + 1:03d}.mp4"
+            _download(motion_url, motion_path, "video")
+            album.append(("live_photo", (still_path, motion_path)))
         else:
-            media_url = _trusted_media_url(image_url)
-            if not media_url:
-                raise TikTokLivePhotoError(f"Untrusted image URL at slide {index + 1}")
-            media_type, suffix = "photo", ".jpg"
-
-        path = target_dir / f"slide_{index + 1:03d}{suffix}"
-        _download(media_url, path)
-        album.append((media_type, path))
+            album.append(("photo", still_path))
 
     return album
