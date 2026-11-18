@@ -1,6 +1,7 @@
 import json
 import mimetypes
 import os
+import subprocess
 import tempfile
 import time
 from contextlib import ExitStack
@@ -139,7 +140,7 @@ def publish_audio_best_effort(video_path: Path, folder: Path, title: str):
         print(f"Audio extraction/publication skipped; video is already published: {exc}")
 
 
-def publish_photos(paths: list[Path] | list[tuple[str, Path]], caption: str, before_send=None,
+def publish_photos(paths: list[Path] | list[tuple[str, object]], caption: str, before_send=None,
                    start_offset: int = 0, before_batch=None, after_batch=None):
     if not paths:
         raise RuntimeError("No photos to publish")
@@ -148,48 +149,91 @@ def publish_photos(paths: list[Path] | list[tuple[str, Path]], caption: str, bef
         raise RuntimeError(f"Invalid saved photo album offset: {start_offset}")
     # Normalize legacy photo-only paths and mixed Live Photo slide tuples.
     slides = [(item[0], item[1]) if isinstance(item, tuple) else ("photo", item) for item in paths]
-    if any(kind not in {"photo", "video"} for kind, _ in slides):
+    if any(kind not in {"photo", "video", "live_photo"} for kind, _ in slides):
         raise RuntimeError("Unsupported TikTok album media type")
-    # Preflight every image before sending anything, avoiding partial albums
-    # caused by a later file violating Telegram's upload constraints.
-    for kind, path in slides:
+    # Preflight every file before sending anything. Telegram native Live Photos
+    # require a still image plus an MP4 motion clip no longer than 10s / 10 MB.
+    for kind, media in slides:
         if kind == "photo":
-            validate_telegram_photo(path)
-        elif path.suffix.lower() != ".mp4" or not path.is_file() or path.stat().st_size == 0:
-            raise RuntimeError(f"Invalid Live Photo MP4 slide: {path.name}")
+            validate_telegram_photo(media)
+        elif kind == "live_photo":
+            still_path, motion_path = media
+            validate_telegram_photo(still_path)
+            if motion_path.suffix.lower() != ".mp4" or not motion_path.is_file():
+                raise RuntimeError(f"Invalid Live Photo MP4 slide: {motion_path}")
+            if motion_path.stat().st_size == 0 or motion_path.stat().st_size > 10 * 1024 * 1024:
+                raise RuntimeError(f"Live Photo motion clip must be non-empty and no larger than 10 MB: {motion_path.name}")
+            probe = subprocess.run(
+                ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                 "-of", "default=noprint_wrappers=1:nokey=1", str(motion_path)],
+                capture_output=True, text=True, timeout=15, check=False,
+            )
+            if probe.returncode != 0:
+                raise RuntimeError(f"Cannot verify Live Photo duration: {motion_path.name}")
+            try:
+                duration = float(probe.stdout.strip())
+            except ValueError as exc:
+                raise RuntimeError(f"Cannot read Live Photo duration: {motion_path.name}") from exc
+            if duration > 10:
+                raise RuntimeError(f"Live Photo motion clip exceeds Telegram's 10-second limit: {motion_path.name}")
+        elif motion_path.suffix.lower() != ".mp4" or not motion_path.is_file() or motion_path.stat().st_size == 0:
+            raise RuntimeError(f"Invalid MP4 video slide: {motion_path.name}")
 
     # Telegram media groups contain at most 10 items. A single image is sent
     # with sendPhoto because sendMediaGroup requires at least two items.
     for offset in range(start_offset, len(slides), 10):
         batch = slides[offset:offset + 10]
-        method = ("sendPhoto" if batch[0][0] == "photo" else "sendVideo") if len(batch) == 1 else "sendMediaGroup"
+        method = ({"photo": "sendPhoto", "video": "sendVideo", "live_photo": "sendLivePhoto"}[batch[0][0]]) if len(batch) == 1 else "sendMediaGroup"
         if before_send:
             before_send()
         if before_batch:
             before_batch(offset, len(paths))
         with ExitStack() as stack:
-            handles = [stack.enter_context(path.open("rb")) for _, path in batch]
             if len(batch) == 1:
-                media_type, path = batch[0]
-                field = "photo" if media_type == "photo" else "video"
+                media_type, media = batch[0]
+                if media_type == "live_photo":
+                    still_path, motion_path = media
+                    still_handle = stack.enter_context(still_path.open("rb"))
+                    motion_handle = stack.enter_context(motion_path.open("rb"))
+                    files = {
+                        "photo": (still_path.name, still_handle, mimetypes.guess_type(still_path.name)[0] or "image/jpeg"),
+                        "live_photo": (motion_path.name, motion_handle, "video/mp4"),
+                    }
+                else:
+                    field = "photo" if media_type == "photo" else "video"
+                    handle = stack.enter_context(media.open("rb"))
+                    files = {field: (media.name, handle, mimetypes.guess_type(media.name)[0] or "application/octet-stream")}
                 response = requests.post(
                     f"https://api.telegram.org/bot{BOT_TOKEN}/{method}",
                     data={"chat_id": CHANNEL_ID, "caption": caption if offset == 0 else ""},
-                    files={field: (path.name, handles[0], mimetypes.guess_type(path.name)[0] or "application/octet-stream")},
+                    files=files,
                     timeout=300,
                 )
             else:
                 media = []
                 files = []
-                for index, ((media_type, path), handle) in enumerate(zip(batch, handles)):
+                for index, (media_type, item_media) in enumerate(batch):
                     attach_name = f"slide{index}"
-                    item = {"type": media_type, "media": f"attach://{attach_name}"}
-                    if media_type == "video":
-                        item["supports_streaming"] = True
+                    if media_type == "live_photo":
+                        still_path, motion_path = item_media
+                        photo_attach = f"still{index}"
+                        video_attach = f"motion{index}"
+                        item = {"type": "live_photo", "media": f"attach://{video_attach}",
+                                "photo": f"attach://{photo_attach}"}
+                        still_handle = stack.enter_context(still_path.open("rb"))
+                        motion_handle = stack.enter_context(motion_path.open("rb"))
+                        files.append((photo_attach, (still_path.name, still_handle, mimetypes.guess_type(still_path.name)[0] or "image/jpeg")))
+                        files.append((video_attach, (motion_path.name, motion_handle, "video/mp4")))
+                    else:
+                        path = item_media
+                        item = {"type": media_type, "media": f"attach://{attach_name}"}
+                        if media_type == "video":
+                            item["supports_streaming"] = True
+                        handle = stack.enter_context(path.open("rb"))
+                        files.append((attach_name, (path.name, handle, mimetypes.guess_type(path.name)[0] or "application/octet-stream")))
                     if offset == 0 and index == 0 and caption:
                         item["caption"] = caption
                     media.append(item)
-                    files.append((attach_name, (path.name, handle, mimetypes.guess_type(path.name)[0] or "application/octet-stream")))
                 response = requests.post(
                     f"https://api.telegram.org/bot{BOT_TOKEN}/sendMediaGroup",
                     data={"chat_id": CHANNEL_ID, "media": json.dumps(media, ensure_ascii=False)},
