@@ -193,16 +193,19 @@ def publish_photos(paths: list[Path] | list[tuple[str, object]], caption: str, b
                 continue
             duration = None
             if motion_path.stat().st_size <= 10 * 1024 * 1024:
-                probe = subprocess.run(
-                    ["ffprobe", "-v", "error", "-show_entries", "format=duration",
-                     "-of", "default=noprint_wrappers=1:nokey=1", str(motion_path)],
-                    capture_output=True, text=True, timeout=15, check=False,
-                )
-                if probe.returncode == 0:
-                    try:
-                        duration = float(probe.stdout.strip())
-                    except ValueError:
-                        duration = None
+                try:
+                    probe = subprocess.run(
+                        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                         "-of", "default=noprint_wrappers=1:nokey=1", str(motion_path)],
+                        capture_output=True, text=True, timeout=15, check=False,
+                    )
+                    if probe.returncode == 0:
+                        try:
+                            duration = float(probe.stdout.strip())
+                        except ValueError:
+                            duration = None
+                except (OSError, subprocess.TimeoutExpired):
+                    duration = None
             if motion_path.stat().st_size <= 10 * 1024 * 1024 and duration is not None and duration <= 10:
                 continue
             # Telegram native Live Photo limits are stricter than ordinary
