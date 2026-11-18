@@ -8,6 +8,7 @@ import requests
 TIKWM_API = "https://www.tikwm.com/api/"
 CDN_SUFFIXES = ("tiktokcdn.com", "tiktokcdn-us.com", "tiktokcdn-eu.com", "tiktokcdn-alisg.com")
 REQUEST_TIMEOUT = (10, 45)
+MAX_LIVE_VIDEO_BYTES = 48 * 1024 * 1024
 
 
 class TikTokLivePhotoError(RuntimeError):
@@ -34,9 +35,13 @@ def _download(url: str, target: Path, expected: str) -> None:
             raise TikTokLivePhotoError(f"Expected MP4 motion clip, received {content_type}")
         if expected == "photo" and content_type and not content_type.startswith("image/"):
             raise TikTokLivePhotoError(f"Expected image slide, received {content_type}")
+        total = 0
         with target.open("wb") as output:
             for chunk in response.iter_content(1024 * 256):
                 if chunk:
+                    total += len(chunk)
+                    if target.suffix == ".mp4" and total > MAX_LIVE_VIDEO_BYTES:
+                        raise TikTokLivePhotoError("Live Photo MP4 exceeds Telegram's safe 48 MB upload limit")
                     output.write(chunk)
     if not target.exists() or target.stat().st_size == 0:
         raise TikTokLivePhotoError("TikWM returned an empty media file")
