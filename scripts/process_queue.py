@@ -175,33 +175,46 @@ def publish_photos(paths: list[Path] | list[tuple[str, object]], caption: str, b
     slides = [(item[0], item[1]) if isinstance(item, tuple) else ("photo", item) for item in paths]
     if any(kind not in {"photo", "video", "live_photo"} for kind, _ in slides):
         raise RuntimeError("Unsupported TikTok album media type")
-    # Preflight every file before sending anything. Telegram native Live Photos
-    # require a still image plus an MP4 motion clip no longer than 10s / 10 MB.
-    for kind, media in slides:
+    # Preflight every file before sending anything. Prefer native Telegram
+    # Live Photos when they meet Telegram's 10-second / 10-MB limits. The user
+    # only needs motion, so oversized/long clips fall back to ordinary videos.
+    for index, (kind, media) in enumerate(slides):
         if kind == "photo":
             validate_telegram_photo(media)
         elif kind == "live_photo":
             still_path, motion_path = media
             validate_telegram_photo(still_path)
-            if motion_path.suffix.lower() != ".mp4" or not motion_path.is_file():
+            if motion_path.suffix.lower() != ".mp4" or not motion_path.is_file() or motion_path.stat().st_size == 0:
                 raise RuntimeError(f"Invalid Live Photo MP4 slide: {motion_path}")
-            if motion_path.stat().st_size == 0 or motion_path.stat().st_size > 10 * 1024 * 1024:
-                raise RuntimeError(f"Live Photo motion clip must be non-empty and no larger than 10 MB: {motion_path.name}")
-            probe = subprocess.run(
-                ["ffprobe", "-v", "error", "-show_entries", "format=duration",
-                 "-of", "default=noprint_wrappers=1:nokey=1", str(motion_path)],
-                capture_output=True, text=True, timeout=15, check=False,
-            )
-            if probe.returncode != 0:
-                raise RuntimeError(f"Cannot verify Live Photo duration: {motion_path.name}")
-            try:
-                duration = float(probe.stdout.strip())
-            except ValueError as exc:
-                raise RuntimeError(f"Cannot read Live Photo duration: {motion_path.name}") from exc
-            if duration > 10:
-                raise RuntimeError(f"Live Photo motion clip exceeds Telegram's 10-second limit: {motion_path.name}")
-        elif media.suffix.lower() != ".mp4" or not media.is_file() or media.stat().st_size == 0:
-            raise RuntimeError(f"Invalid MP4 video slide: {media.name}")
+            if motion_path.stat().st_size > MAX_VIDEO_MB * 1024 * 1024:
+                # The still remains a safe fallback if the motion file exceeds
+                # the Bot API's regular video upload budget.
+                slides[index] = ("photo", still_path)
+                continue
+            duration = None
+            if motion_path.stat().st_size <= 10 * 1024 * 1024:
+                probe = subprocess.run(
+                    ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                     "-of", "default=noprint_wrappers=1:nokey=1", str(motion_path)],
+                    capture_output=True, text=True, timeout=15, check=False,
+                )
+                if probe.returncode == 0:
+                    try:
+                        duration = float(probe.stdout.strip())
+                    except ValueError:
+                        duration = None
+            if motion_path.stat().st_size <= 10 * 1024 * 1024 and duration is not None and duration <= 10:
+                continue
+            # Telegram native Live Photo limits are stricter than ordinary
+            # video limits. Send the motion clip as a regular video instead.
+            slides[index] = ("video", motion_path)
+        elif kind == "video":
+            if media.suffix.lower() != ".mp4" or not media.is_file() or media.stat().st_size == 0:
+                raise RuntimeError(f"Invalid MP4 video slide: {media}")
+            if media.stat().st_size > MAX_VIDEO_MB * 1024 * 1024:
+                raise RuntimeError(f"Video slide exceeds Telegram's safe {MAX_VIDEO_MB} MB upload limit: {media.name}")
+        else:
+            raise RuntimeError("Unsupported TikTok album media type")
 
     # Telegram media groups contain at most 10 items. A single image is sent
     # with sendPhoto because sendMediaGroup requires at least two items.
