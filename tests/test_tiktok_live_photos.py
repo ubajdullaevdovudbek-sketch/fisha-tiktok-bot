@@ -79,9 +79,11 @@ class TikTokLivePhotoTests(unittest.TestCase):
             "images": ["https://p16.tiktokcdn.com/a.jpeg"],
             "live_images": ["https://example.com/a.mp4"],
         }}
-        with patch("app.tiktok_live_photos.requests.post", return_value=self.response(payload)):
+        with tempfile.TemporaryDirectory() as tmp, \\
+             patch("app.tiktok_live_photos.requests.post", return_value=self.response(payload)), \\
+             patch("app.tiktok_live_photos.requests.get", return_value=self.media_response("image/jpeg", b"still")):
             with self.assertRaisesRegex(TikTokLivePhotoError, "Untrusted Live Photo URL"):
-                download_tiktok_live_photo_album("https://www.tiktok.com/@u/photo/123", Path("/tmp/not-used"))
+                download_tiktok_live_photo_album("https://www.tiktok.com/@u/photo/123", Path(tmp))
 
     def test_rejects_non_mp4_motion_content(self):
         payload = {"code": 0, "data": {
@@ -90,7 +92,10 @@ class TikTokLivePhotoTests(unittest.TestCase):
         }}
         with tempfile.TemporaryDirectory() as tmp, \
              patch("app.tiktok_live_photos.requests.post", return_value=self.response(payload)), \
-             patch("app.tiktok_live_photos.requests.get", return_value=self.media_response("text/html", b"error")):
+             patch("app.tiktok_live_photos.requests.get", side_effect=[
+                 self.media_response("image/jpeg", b"still"),
+                 self.media_response("text/html", b"error"),
+             ]):
             with self.assertRaisesRegex(TikTokLivePhotoError, "Expected MP4"):
                 download_tiktok_live_photo_album("https://www.tiktok.com/@u/photo/123", Path(tmp))
 
