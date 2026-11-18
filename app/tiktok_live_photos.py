@@ -62,21 +62,24 @@ def _download(url: str, target: Path, expected: str) -> None:
 def download_tiktok_live_photo_album(url: str, target_dir: Path) -> list[tuple[str, object]] | None:
     """Return ordered ('photo', Path) or ('video', Path) slides.
 
-    A complete index-aligned live_images array is required to avoid pairing a
-    motion clip with the wrong still. Return None when no Live Photo data exists;
-    callers can then use the existing gallery-dl photo-only path.
+    TikWM's live_images array is index-aligned with images; a shorter array is
+    padded with empty entries so still-only slides remain in the right position.
+    Return None when no Live Photo data exists.
     """
     payload = None
     last_error = None
     for attempt in range(3):
         try:
-            response = requests.post(
+            response = requests.get(
                 TIKWM_API,
-                data={"url": url, "hd": "1"},
+                params={"url": url, "hd": "1"},
                 headers={
-                    "Content-Type": "application/x-www-form-urlencoded",
-                    "User-Agent": "Mozilla/5.0",
+                    "User-Agent": "Mozilla/5.0 (Linux; Android 12; Pixel 5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
                     "Accept": "application/json, text/plain, */*",
+                    "Accept-Encoding": "gzip",
+                    "Accept-Language": "en-US,en;q=0.9",
+                    "Referer": "https://www.tiktok.com/",
+                    "Connection": "close",
                 },
                 timeout=REQUEST_TIMEOUT,
             )
@@ -103,9 +106,9 @@ def download_tiktok_live_photo_album(url: str, target_dir: Path) -> list[tuple[s
         raise TikTokLivePhotoError("TikWM response contains no photo slides")
     if not isinstance(live_images, list) or not live_images:
         return None
-    if len(live_images) != len(images):
+    if len(live_images) > len(images):
         raise TikTokLivePhotoError(
-            f"Live Photo alignment mismatch: {len(images)} images, {len(live_images)} motion clips"
+            f"Live Photo alignment mismatch: {len(images)} images, {len(live_images)} motion entries"
         )
 
     target_dir.mkdir(parents=True, exist_ok=True)
@@ -117,7 +120,7 @@ def download_tiktok_live_photo_album(url: str, target_dir: Path) -> list[tuple[s
         still_path = target_dir / f"slide_{index + 1:03d}.jpg"
         _download(still_url, still_path, "photo")
 
-        motion_url = live_images[index]
+        motion_url = live_images[index] if index < len(live_images) else ""
         if motion_url:
             motion_url = _trusted_media_url(motion_url)
             motion_path = target_dir / f"slide_{index + 1:03d}.mp4"
