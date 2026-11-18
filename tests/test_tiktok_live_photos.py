@@ -99,6 +99,19 @@ class TikTokLivePhotoTests(unittest.TestCase):
             with self.assertRaisesRegex(TikTokLivePhotoError, "Expected MP4"):
                 download_tiktok_live_photo_album("https://www.tiktok.com/@u/photo/123", Path(tmp))
 
+    def test_rejects_motion_clip_over_telegram_safe_limit(self):
+        payload = {"code": 0, "data": {
+            "images": ["https://p16.tiktokcdn.com/a.jpeg"],
+            "live_images": ["https://v19.tiktokcdn.com/a.mp4"],
+        }}
+        oversized = self.media_response("video/mp4", b"123456")
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch("app.tiktok_live_photos.MAX_LIVE_VIDEO_BYTES", 5), \
+             patch("app.tiktok_live_photos.requests.post", return_value=self.response(payload)), \
+             patch("app.tiktok_live_photos.requests.get", return_value=oversized):
+            with self.assertRaisesRegex(TikTokLivePhotoError, "48 MB"):
+                download_tiktok_live_photo_album("https://www.tiktok.com/@u/photo/123", Path(tmp))
+
 
 if __name__ == "__main__":
     unittest.main()
