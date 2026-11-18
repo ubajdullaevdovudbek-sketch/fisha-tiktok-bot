@@ -140,6 +140,30 @@ def publish_audio_best_effort(video_path: Path, folder: Path, title: str):
         print(f"Audio extraction/publication skipped; video is already published: {exc}")
 
 
+def validate_live_photo_album(slides):
+    """Preflight Telegram Live Photo constraints before starting album delivery."""
+    for kind, media in slides:
+        if kind != "live_photo":
+            continue
+        still_path, motion_path = media
+        validate_telegram_photo(still_path)
+        if motion_path.stat().st_size == 0 or motion_path.stat().st_size > 10 * 1024 * 1024:
+            raise RuntimeError(f"Live Photo motion clip must be non-empty and no larger than 10 MB: {motion_path.name}")
+        probe = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+             "-of", "default=noprint_wrappers=1:nokey=1", str(motion_path)],
+            capture_output=True, text=True, timeout=15, check=False,
+        )
+        if probe.returncode != 0:
+            raise RuntimeError(f"Cannot verify Live Photo duration: {motion_path.name}")
+        try:
+            duration = float(probe.stdout.strip())
+        except ValueError as exc:
+            raise RuntimeError(f"Cannot read Live Photo duration: {motion_path.name}") from exc
+        if duration > 10:
+            raise RuntimeError(f"Live Photo motion clip exceeds Telegram's 10-second limit: {motion_path.name}")
+
+
 def publish_photos(paths: list[Path] | list[tuple[str, object]], caption: str, before_send=None,
                    start_offset: int = 0, before_batch=None, after_batch=None):
     if not paths:
@@ -293,10 +317,14 @@ def process_one() -> bool:
                     live_album = None
                     try:
                         live_album = download_tiktok_live_photo_album(resolved_url, folder / "live_album")
+                        if live_album is not None:
+                            validate_live_photo_album(live_album)
                     except Exception as exc:
                         # TikWM is an optional enhancement. Keep the existing
-                        # gallery-dl path as a safe fallback for all failures.
+                        # gallery-dl path as a safe fallback for all failures,
+                        # including Telegram's native Live Photo size/duration limits.
                         print(f"TikWM Live Photo extraction unavailable; falling back to still photos: {exc}")
+                        live_album = None
                     photos = live_album if live_album is not None else download_tiktok_photos(resolved_url, folder)
                     saved_offset = int(job.get("album_next_offset") or 0)
                     publish_photos(
