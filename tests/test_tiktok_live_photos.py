@@ -104,11 +104,13 @@ class TikTokLivePhotoTests(unittest.TestCase):
             "images": ["https://p16.tiktokcdn.com/a.jpeg"],
             "live_images": ["https://v19.tiktokcdn.com/a.mp4"],
         }}
-        oversized = self.media_response("video/mp4", b"123456")
         with tempfile.TemporaryDirectory() as tmp, \
              patch("app.tiktok_live_photos.MAX_LIVE_VIDEO_BYTES", 5), \
              patch("app.tiktok_live_photos.requests.post", return_value=self.response(payload)), \
-             patch("app.tiktok_live_photos.requests.get", return_value=oversized):
+             patch("app.tiktok_live_photos.requests.get", side_effect=[
+                 self.media_response("image/jpeg", b"still"),
+                 self.media_response("video/mp4", b"123456"),
+             ]):
             with self.assertRaisesRegex(TikTokLivePhotoError, "48 MB"):
                 download_tiktok_live_photo_album("https://www.tiktok.com/@u/photo/123", Path(tmp))
 
