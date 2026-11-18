@@ -341,7 +341,7 @@ def process_one() -> bool:
                             {"id": job_id, "next_offset": next_offset},
                         ),
                     )
-                    print(f"Published TikTok photo carousel #{job_id} ({len(photos)} images)")
+                    print(f"Published TikTok photo carousel #{job_id} ({len(photos)} slides)")
                 else:
                     started = time.monotonic()
                     path, metadata = download_tiktok(resolved_url, folder)
