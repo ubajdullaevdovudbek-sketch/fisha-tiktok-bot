@@ -10,7 +10,7 @@ import requests
 
 
 TIKWM_API = "https://www.tikwm.com/api/"
-CDN_SUFFIX = "tiktokcdn.com"
+CDN_SUFFIXES = ("tiktokcdn.com", "tiktokcdn-us.com", "tiktokcdn-eu.com", "tiktokcdn-alisg.com")
 REQUEST_TIMEOUT = (10, 45)
 
 
@@ -23,7 +23,7 @@ def _trusted_media_url(value: object) -> str | None:
         return None
     parsed = urlparse(value)
     host = (parsed.hostname or "").lower()
-    if parsed.scheme != "https" or not (host == CDN_SUFFIX or host.endswith("." + CDN_SUFFIX)):
+    if parsed.scheme != "https" or not any(host == suffix or host.endswith("." + suffix) for suffix in CDN_SUFFIXES):
         return None
     return value
 
