@@ -42,7 +42,7 @@ class TikTokLivePhotoTests(unittest.TestCase):
             },
         }
         with tempfile.TemporaryDirectory() as tmp, \
-             patch("app.tiktok_live_photos.requests.post", return_value=self.response(payload)), \
+             patch("app.tiktok_live_photos.requests.get", side_effect=[self.response(payload), self.media_response("image/jpeg", b"jpg-one"), self.media_response("video/mp4", b"mp4-one"), self.media_response("image/jpeg", b"jpg-two"), self.media_response("image/jpeg", b"jpg-three"), self.media_response("video/mp4", b"mp4-three")]), \
              patch("app.tiktok_live_photos.requests.get", side_effect=[
                  self.media_response("image/jpeg", b"jpg-one"),
                  self.media_response("video/mp4", b"mp4-one"),
@@ -56,11 +56,11 @@ class TikTokLivePhotoTests(unittest.TestCase):
         self.assertEqual(album[0][1].name, "slide_001.mp4")
         self.assertEqual(album[1][1].name, "slide_002.jpg")
         self.assertEqual(album[2][1].name, "slide_003.mp4")
-        self.assertEqual(getter.call_count, 5)
+        self.assertEqual(getter.call_count, 6)
 
     def test_returns_none_when_post_has_no_live_motion(self):
         payload = {"code": 0, "data": {"images": ["https://p16.tiktokcdn.com/a.jpeg"], "live_images": []}}
-        with patch("app.tiktok_live_photos.requests.post", return_value=self.response(payload)):
+        with patch("app.tiktok_live_photos.requests.get", side_effect=[self.response(payload), self.media_response("image/jpeg", b"jpg-one"), self.media_response("video/mp4", b"mp4-one"), self.media_response("image/jpeg", b"jpg-two"), self.media_response("image/jpeg", b"jpg-three"), self.media_response("video/mp4", b"mp4-three")]):
             self.assertIsNone(download_tiktok_live_photo_album("https://www.tiktok.com/@u/photo/123", Path("/tmp/not-used")))
 
     def test_rejects_mismatched_arrays_to_prevent_wrong_pairing(self):
@@ -68,7 +68,7 @@ class TikTokLivePhotoTests(unittest.TestCase):
             "images": ["https://p16.tiktokcdn.com/a.jpeg", "https://p16.tiktokcdn.com/b.jpeg"],
             "live_images": ["https://v19.tiktokcdn.com/a.mp4"],
         }}
-        with patch("app.tiktok_live_photos.requests.post", return_value=self.response(payload)):
+        with patch("app.tiktok_live_photos.requests.get", side_effect=[self.response(payload), self.media_response("image/jpeg", b"jpg-one"), self.media_response("video/mp4", b"mp4-one"), self.media_response("image/jpeg", b"jpg-two"), self.media_response("image/jpeg", b"jpg-three"), self.media_response("video/mp4", b"mp4-three")]):
             with self.assertRaisesRegex(TikTokLivePhotoError, "alignment mismatch"):
                 download_tiktok_live_photo_album("https://www.tiktok.com/@u/photo/123", Path("/tmp/not-used"))
 
@@ -78,7 +78,7 @@ class TikTokLivePhotoTests(unittest.TestCase):
             "live_images": ["https://example.com/a.mp4"],
         }}
         with tempfile.TemporaryDirectory() as tmp, \
-             patch("app.tiktok_live_photos.requests.post", return_value=self.response(payload)), \
+             patch("app.tiktok_live_photos.requests.get", side_effect=[self.response(payload), self.media_response("image/jpeg", b"jpg-one"), self.media_response("video/mp4", b"mp4-one"), self.media_response("image/jpeg", b"jpg-two"), self.media_response("image/jpeg", b"jpg-three"), self.media_response("video/mp4", b"mp4-three")]), \
              patch("app.tiktok_live_photos.requests.get", return_value=self.media_response("image/jpeg", b"still")):
             album = download_tiktok_live_photo_album("https://www.tiktok.com/@u/photo/123", Path(tmp))
 
@@ -91,7 +91,7 @@ class TikTokLivePhotoTests(unittest.TestCase):
             "live_images": ["https://v19.tiktokcdn.com/a.mp4"],
         }}
         with tempfile.TemporaryDirectory() as tmp, \
-             patch("app.tiktok_live_photos.requests.post", return_value=self.response(payload)), \
+             patch("app.tiktok_live_photos.requests.get", side_effect=[self.response(payload), self.media_response("image/jpeg", b"jpg-one"), self.media_response("video/mp4", b"mp4-one"), self.media_response("image/jpeg", b"jpg-two"), self.media_response("image/jpeg", b"jpg-three"), self.media_response("video/mp4", b"mp4-three")]), \
              patch("app.tiktok_live_photos.requests.get", side_effect=[
                  self.media_response("image/jpeg", b"still"),
                  self.media_response("text/html", b"error"),
@@ -108,7 +108,7 @@ class TikTokLivePhotoTests(unittest.TestCase):
         }}
         with tempfile.TemporaryDirectory() as tmp, \
              patch("app.tiktok_live_photos.MAX_LIVE_VIDEO_BYTES", 5), \
-             patch("app.tiktok_live_photos.requests.post", return_value=self.response(payload)), \
+             patch("app.tiktok_live_photos.requests.get", side_effect=[self.response(payload), self.media_response("image/jpeg", b"jpg-one"), self.media_response("video/mp4", b"mp4-one"), self.media_response("image/jpeg", b"jpg-two"), self.media_response("image/jpeg", b"jpg-three"), self.media_response("video/mp4", b"mp4-three")]), \
              patch("app.tiktok_live_photos.requests.get", side_effect=[
                  self.media_response("image/jpeg", b"still"),
                  self.media_response("video/mp4", b"123456"),
