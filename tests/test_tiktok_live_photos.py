@@ -1,7 +1,7 @@
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 from app.tiktok_live_photos import (
     TikTokLivePhotoError,
@@ -17,7 +17,7 @@ class TikTokLivePhotoTests(unittest.TestCase):
         return response
 
     def media_response(self, content_type, body):
-        response = Mock()
+        response = MagicMock()
         response.__enter__ = Mock(return_value=response)
         response.__exit__ = Mock(return_value=False)
         response.raise_for_status.return_value = None
