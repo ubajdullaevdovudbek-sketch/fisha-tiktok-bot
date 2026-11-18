@@ -163,8 +163,8 @@ class TelegramPhotoPublishTests(unittest.TestCase):
         self.assertEqual(actual_names, expected_names)
         first = json.loads(post.call_args_list[0].kwargs["data"]["media"])
         second = json.loads(post.call_args_list[1].kwargs["data"]["media"])
-        self.assertEqual([item["media"] for item in first], [f"attach://photo{i}" for i in range(10)])
-        self.assertEqual([item["media"] for item in second], ["attach://photo0", "attach://photo1"])
+        self.assertEqual([item["media"] for item in first], [f"attach://slide{i}" for i in range(10)])
+        self.assertEqual([item["media"] for item in second], ["attach://slide0", "attach://slide1"])
 
 
 if __name__ == "__main__":
