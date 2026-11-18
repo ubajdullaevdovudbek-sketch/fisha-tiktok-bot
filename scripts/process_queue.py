@@ -176,8 +176,8 @@ def publish_photos(paths: list[Path] | list[tuple[str, object]], caption: str, b
                 raise RuntimeError(f"Cannot read Live Photo duration: {motion_path.name}") from exc
             if duration > 10:
                 raise RuntimeError(f"Live Photo motion clip exceeds Telegram's 10-second limit: {motion_path.name}")
-        elif motion_path.suffix.lower() != ".mp4" or not motion_path.is_file() or motion_path.stat().st_size == 0:
-            raise RuntimeError(f"Invalid MP4 video slide: {motion_path.name}")
+        elif media.suffix.lower() != ".mp4" or not media.is_file() or media.stat().st_size == 0:
+            raise RuntimeError(f"Invalid MP4 video slide: {media.name}")
 
     # Telegram media groups contain at most 10 items. A single image is sent
     # with sendPhoto because sendMediaGroup requires at least two items.
