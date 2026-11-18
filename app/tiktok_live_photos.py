@@ -1,4 +1,4 @@
-"""TikTok Photo Mode downloader with native Telegram Live Photo pairs."""
+"""TikTok Photo Mode downloader with ordered video/photo slides."""
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -60,7 +60,7 @@ def _download(url: str, target: Path, expected: str) -> None:
 
 
 def download_tiktok_live_photo_album(url: str, target_dir: Path) -> list[tuple[str, object]] | None:
-    """Return ordered ('photo', Path) or ('live_photo', (still_path, video_path)) slides.
+    """Return ordered ('photo', Path) or ('video', Path) slides.
 
     A complete index-aligned live_images array is required to avoid pairing a
     motion clip with the wrong still. Return None when no Live Photo data exists;
@@ -124,7 +124,7 @@ def download_tiktok_live_photo_album(url: str, target_dir: Path) -> list[tuple[s
             if motion_url:
                 try:
                     _download(motion_url, motion_path, "video")
-                    album.append(("live_photo", (still_path, motion_path)))
+                    album.append(("video", motion_path))
                     continue
                 except TikTokLivePhotoError:
                     # Keep the album and its original order if this slide's
