@@ -160,6 +160,27 @@ class TelegramPhotoPublishTests(unittest.TestCase):
         self.assertEqual(post.call_args_list[1].kwargs["data"]["caption"], "")
 
     @patch("scripts.process_queue.requests.post", return_value=FakeResponse())
+    def test_more_than_ten_mixed_video_photo_slides_split_into_ordered_batches(self, post):
+        with tempfile.TemporaryDirectory() as tmp:
+            photos = self.make_photos(tmp, 6)
+            slides = []
+            for index in range(12):
+                if index % 2 == 0:
+                    video = Path(tmp) / f"slide_{index + 1:03}.mp4"
+                    video.write_bytes(b"test-mp4")
+                    slides.append(("video", video))
+                else:
+                    slides.append(("photo", photos[index // 2]))
+            publish_photos(slides, "caption")
+        self.assertEqual(post.call_count, 2)
+        batches = [json.loads(call.kwargs["data"]["media"]) for call in post.call_args_list]
+        self.assertEqual([len(batch) for batch in batches], [10, 2])
+        uploaded_types = [item["type"] for batch in batches for item in batch]
+        self.assertEqual(uploaded_types, ["video", "photo"] * 6)
+        self.assertEqual(batches[0][0]["caption"], "caption")
+        self.assertNotIn("caption", batches[1][0])
+
+    @patch("scripts.process_queue.requests.post", return_value=FakeResponse())
     def test_photo_batches_preserve_filename_order(self, post):
         with tempfile.TemporaryDirectory() as tmp:
             photos = self.make_photos(tmp, 12)
