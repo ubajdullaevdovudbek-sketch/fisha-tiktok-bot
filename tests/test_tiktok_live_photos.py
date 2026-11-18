@@ -41,8 +41,8 @@ class TikTokLivePhotoTests(unittest.TestCase):
                 ],
             },
         }
-        with tempfile.TemporaryDirectory() as tmp, \\
-             patch("app.tiktok_live_photos.requests.post", return_value=self.response(payload)), \\
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch("app.tiktok_live_photos.requests.post", return_value=self.response(payload)), \
              patch("app.tiktok_live_photos.requests.get", side_effect=[
                  self.media_response("image/jpeg", b"jpg-one"),
                  self.media_response("video/mp4", b"mp4-one"),
@@ -79,8 +79,8 @@ class TikTokLivePhotoTests(unittest.TestCase):
             "images": ["https://p16.tiktokcdn.com/a.jpeg"],
             "live_images": ["https://example.com/a.mp4"],
         }}
-        with tempfile.TemporaryDirectory() as tmp, \\
-             patch("app.tiktok_live_photos.requests.post", return_value=self.response(payload)), \\
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch("app.tiktok_live_photos.requests.post", return_value=self.response(payload)), \
              patch("app.tiktok_live_photos.requests.get", return_value=self.media_response("image/jpeg", b"still")):
             with self.assertRaisesRegex(TikTokLivePhotoError, "Untrusted Live Photo URL"):
                 download_tiktok_live_photo_album("https://www.tiktok.com/@u/photo/123", Path(tmp))
