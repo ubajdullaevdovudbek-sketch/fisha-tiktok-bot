@@ -55,6 +55,23 @@ class TelegramPhotoPublishTests(unittest.TestCase):
         self.assertNotIn("caption", media[1])
 
     @patch("scripts.process_queue.requests.post", return_value=FakeResponse())
+    def test_mixed_video_and_photo_slides_preserve_order_and_use_supported_media_types(self, post):
+        with tempfile.TemporaryDirectory() as tmp:
+            video = Path(tmp) / "slide_001.mp4"
+            video.write_bytes(b"test-mp4")
+            photo = self.make_photos(tmp, 1)[0]
+            publish_photos([("video", video), ("photo", photo)], "caption")
+        self.assertTrue(post.call_args.args[0].endswith("/sendMediaGroup"))
+        media = json.loads(post.call_args.kwargs["data"]["media"])
+        self.assertEqual([item["type"] for item in media], ["video", "photo"])
+        self.assertEqual([item["media"] for item in media], ["attach://slide0", "attach://slide1"])
+        self.assertTrue(media[0]["supports_streaming"])
+        self.assertEqual(media[0]["caption"], "caption")
+        self.assertNotIn("caption", media[1])
+        self.assertEqual([item[1][0] for item in post.call_args.kwargs["files"]],
+                         ["slide_001.mp4", "001.jpg"])
+
+    @patch("scripts.process_queue.requests.post", return_value=FakeResponse())
     def test_more_than_ten_photos_split_into_groups(self, post):
         with tempfile.TemporaryDirectory() as tmp:
             publish_photos(self.make_photos(tmp, 12), "caption")
