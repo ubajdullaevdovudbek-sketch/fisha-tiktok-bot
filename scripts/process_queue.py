@@ -14,6 +14,7 @@ from app.audio import extract_audio_mp3
 from app.photo_validation import validate_telegram_photo
 from app.queue_runner import process_batch
 from app.tiktok_photos import download_tiktok_photos, is_tiktok_photo_url, resolve_tiktok_url
+from app.tiktok_live_photos import download_tiktok_live_photo_album
 
 
 API_URL = os.environ["WORKER_API_URL"].rstrip("/")
@@ -138,42 +139,53 @@ def publish_audio_best_effort(video_path: Path, folder: Path, title: str):
         print(f"Audio extraction/publication skipped; video is already published: {exc}")
 
 
-def publish_photos(paths: list[Path], caption: str, before_send=None,
+def publish_photos(paths: list[Path] | list[tuple[str, Path]], caption: str, before_send=None,
                    start_offset: int = 0, before_batch=None, after_batch=None):
     if not paths:
         raise RuntimeError("No photos to publish")
     if (start_offset < 0 or start_offset > len(paths) or
             (start_offset != len(paths) and start_offset % 10)):
         raise RuntimeError(f"Invalid saved photo album offset: {start_offset}")
+    # Normalize legacy photo-only paths and mixed Live Photo slide tuples.
+    slides = [(item[0], item[1]) if isinstance(item, tuple) else ("photo", item) for item in paths]
+    if any(kind not in {"photo", "video"} for kind, _ in slides):
+        raise RuntimeError("Unsupported TikTok album media type")
     # Preflight every image before sending anything, avoiding partial albums
     # caused by a later file violating Telegram's upload constraints.
-    for path in paths:
-        validate_telegram_photo(path)
+    for kind, path in slides:
+        if kind == "photo":
+            validate_telegram_photo(path)
+        elif path.suffix.lower() != ".mp4" or not path.is_file() or path.stat().st_size == 0:
+            raise RuntimeError(f"Invalid Live Photo MP4 slide: {path.name}")
 
     # Telegram media groups contain at most 10 items. A single image is sent
     # with sendPhoto because sendMediaGroup requires at least two items.
-    for offset in range(start_offset, len(paths), 10):
-        batch = paths[offset:offset + 10]
-        method = "sendPhoto" if len(batch) == 1 else "sendMediaGroup"
+    for offset in range(start_offset, len(slides), 10):
+        batch = slides[offset:offset + 10]
+        method = ("sendPhoto" if batch[0][0] == "photo" else "sendVideo") if len(batch) == 1 else "sendMediaGroup"
         if before_send:
             before_send()
         if before_batch:
             before_batch(offset, len(paths))
         with ExitStack() as stack:
-            handles = [stack.enter_context(path.open("rb")) for path in batch]
-            if method == "sendPhoto":
+            handles = [stack.enter_context(path.open("rb")) for _, path in batch]
+            if len(batch) == 1:
+                media_type, path = batch[0]
+                field = "photo" if media_type == "photo" else "video"
                 response = requests.post(
-                    f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto",
+                    f"https://api.telegram.org/bot{BOT_TOKEN}/{method}",
                     data={"chat_id": CHANNEL_ID, "caption": caption if offset == 0 else ""},
-                    files={"photo": (batch[0].name, handles[0], mimetypes.guess_type(batch[0].name)[0] or "application/octet-stream")},
+                    files={field: (path.name, handles[0], mimetypes.guess_type(path.name)[0] or "application/octet-stream")},
                     timeout=300,
                 )
             else:
                 media = []
                 files = []
-                for index, (path, handle) in enumerate(zip(batch, handles)):
-                    attach_name = f"photo{index}"
-                    item = {"type": "photo", "media": f"attach://{attach_name}"}
+                for index, ((media_type, path), handle) in enumerate(zip(batch, handles)):
+                    attach_name = f"slide{index}"
+                    item = {"type": media_type, "media": f"attach://{attach_name}"}
+                    if media_type == "video":
+                        item["supports_streaming"] = True
                     if offset == 0 and index == 0 and caption:
                         item["caption"] = caption
                     media.append(item)
@@ -234,7 +246,14 @@ def process_one() -> bool:
                     resolved_url = source_url
 
                 if is_tiktok_photo_url(resolved_url):
-                    photos = download_tiktok_photos(resolved_url, folder)
+                    live_album = None
+                    try:
+                        live_album = download_tiktok_live_photo_album(resolved_url, folder / "live_album")
+                    except Exception as exc:
+                        # TikWM is an optional enhancement. Keep the existing
+                        # gallery-dl path as a safe fallback for all failures.
+                        print(f"TikWM Live Photo extraction unavailable; falling back to still photos: {exc}")
+                    photos = live_album if live_album is not None else download_tiktok_photos(resolved_url, folder)
                     saved_offset = int(job.get("album_next_offset") or 0)
                     publish_photos(
                         photos,
