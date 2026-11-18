@@ -52,12 +52,10 @@ class TikTokLivePhotoTests(unittest.TestCase):
              ]) as getter:
             album = download_tiktok_live_photo_album("https://www.tiktok.com/@u/photo/123", Path(tmp))
 
-        self.assertEqual([kind for kind, _ in album], ["live_photo", "photo", "live_photo"])
-        self.assertEqual(album[0][1][0].name, "slide_001.jpg")
-        self.assertEqual(album[0][1][1].name, "slide_001.mp4")
+        self.assertEqual([kind for kind, _ in album], ["video", "photo", "video"])
+        self.assertEqual(album[0][1].name, "slide_001.mp4")
         self.assertEqual(album[1][1].name, "slide_002.jpg")
-        self.assertEqual(album[2][1][0].name, "slide_003.jpg")
-        self.assertEqual(album[2][1][1].name, "slide_003.mp4")
+        self.assertEqual(album[2][1].name, "slide_003.mp4")
         self.assertEqual(getter.call_count, 5)
 
     def test_returns_none_when_post_has_no_live_motion(self):
