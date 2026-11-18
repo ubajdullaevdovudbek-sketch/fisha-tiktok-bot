@@ -25,98 +25,152 @@ class TikTokLivePhotoTests(unittest.TestCase):
         response.iter_content.return_value = [body]
         return response
 
-    def test_downloads_native_live_photo_pairs_and_still_slides_in_order(self):
-        payload = {
-            "code": 0,
-            "data": {
-                "images": [
-                    "https://p16.tiktokcdn-us.com/slide1.jpeg",
-                    "https://p16.tiktokcdn-us.com/slide2.jpeg",
-                    "https://p16.tiktokcdn-us.com/slide3.jpeg",
-                ],
-                "live_images": [
-                    "https://v19.tiktokcdn-us.com/slide1.mp4",
-                    "",
-                    "https://v19.tiktokcdn-us.com/slide3.mp4",
-                ],
-            },
-        }
-        with tempfile.TemporaryDirectory() as tmp, \
-             patch("app.tiktok_live_photos.requests.get", side_effect=[self.response(payload), self.media_response("image/jpeg", b"jpg-one"), self.media_response("video/mp4", b"mp4-one"), self.media_response("image/jpeg", b"jpg-two"), self.media_response("image/jpeg", b"jpg-three"), self.media_response("video/mp4", b"mp4-three")]), \
-             patch("app.tiktok_live_photos.requests.get", side_effect=[
-                 self.media_response("image/jpeg", b"jpg-one"),
-                 self.media_response("video/mp4", b"mp4-one"),
-                 self.media_response("image/jpeg", b"jpg-two"),
-                 self.media_response("image/jpeg", b"jpg-three"),
-                 self.media_response("video/mp4", b"mp4-three"),
-             ]) as getter:
-            album = download_tiktok_live_photo_album("https://www.tiktok.com/@u/photo/123", Path(tmp))
+    def test_downloads_motion_and_still_slides_in_original_order_using_get_api(self):
+        payload = {"code": 0, "data": {
+            "images": [
+                "https://p16.tiktokcdn-us.com/slide1.jpeg",
+                "https://p16.tiktokcdn-us.com/slide2.jpeg",
+                "https://p16.tiktokcdn-us.com/slide3.jpeg",
+            ],
+            "live_images": [
+                "https://v19.tiktokcdn-us.com/slide1.mp4",
+                "",
+                "https://v19.tiktokcdn-us.com/slide3.mp4",
+            ],
+        }}
+        responses = [
+            self.response(payload),
+            self.media_response("image/jpeg", b"jpg-one"),
+            self.media_response("video/mp4", b"mp4-one"),
+            self.media_response("image/jpeg", b"jpg-two"),
+            self.media_response("image/jpeg", b"jpg-three"),
+            self.media_response("video/mp4", b"mp4-three"),
+        ]
+        with tempfile.TemporaryDirectory() as tmp, patch(
+            "app.tiktok_live_photos.requests.get", side_effect=responses
+        ) as getter:
+            album = download_tiktok_live_photo_album(
+                "https://www.tiktok.com/@u/photo/123", Path(tmp)
+            )
 
         self.assertEqual([kind for kind, _ in album], ["video", "photo", "video"])
-        self.assertEqual(album[0][1].name, "slide_001.mp4")
-        self.assertEqual(album[1][1].name, "slide_002.jpg")
-        self.assertEqual(album[2][1].name, "slide_003.mp4")
+        self.assertEqual([path.name for _, path in album], [
+            "slide_001.mp4", "slide_002.jpg", "slide_003.mp4"
+        ])
         self.assertEqual(getter.call_count, 6)
+        self.assertEqual(getter.call_args_list[0].kwargs["params"], {
+            "url": "https://www.tiktok.com/@u/photo/123", "hd": "1"
+        })
+        self.assertEqual(
+            getter.call_args_list[0].kwargs["headers"]["Referer"],
+            "https://www.tiktok.com/",
+        )
 
-    def test_returns_none_when_post_has_no_live_motion(self):
-        payload = {"code": 0, "data": {"images": ["https://p16.tiktokcdn.com/a.jpeg"], "live_images": []}}
-        with patch("app.tiktok_live_photos.requests.get", side_effect=[self.response(payload), self.media_response("image/jpeg", b"jpg-one"), self.media_response("video/mp4", b"mp4-one"), self.media_response("image/jpeg", b"jpg-two"), self.media_response("image/jpeg", b"jpg-three"), self.media_response("video/mp4", b"mp4-three")]):
-            self.assertIsNone(download_tiktok_live_photo_album("https://www.tiktok.com/@u/photo/123", Path("/tmp/not-used")))
-
-    def test_rejects_mismatched_arrays_to_prevent_wrong_pairing(self):
+    def test_returns_none_when_api_has_no_live_motion(self):
         payload = {"code": 0, "data": {
-            "images": ["https://p16.tiktokcdn.com/a.jpeg", "https://p16.tiktokcdn.com/b.jpeg"],
+            "images": ["https://p16.tiktokcdn.com/a.jpeg"], "live_images": []
+        }}
+        with patch(
+            "app.tiktok_live_photos.requests.get",
+            return_value=self.response(payload),
+        ):
+            self.assertIsNone(download_tiktok_live_photo_album(
+                "https://www.tiktok.com/@u/photo/123", Path("/tmp/not-used")
+            ))
+
+    def test_pads_short_motion_array_without_shifting_slide_pairing(self):
+        payload = {"code": 0, "data": {
+            "images": [
+                "https://p16.tiktokcdn.com/a.jpeg",
+                "https://p16.tiktokcdn.com/b.jpeg",
+            ],
             "live_images": ["https://v19.tiktokcdn.com/a.mp4"],
         }}
-        with patch("app.tiktok_live_photos.requests.get", side_effect=[self.response(payload), self.media_response("image/jpeg", b"jpg-one"), self.media_response("video/mp4", b"mp4-one"), self.media_response("image/jpeg", b"jpg-two"), self.media_response("image/jpeg", b"jpg-three"), self.media_response("video/mp4", b"mp4-three")]):
-            with self.assertRaisesRegex(TikTokLivePhotoError, "alignment mismatch"):
-                download_tiktok_live_photo_album("https://www.tiktok.com/@u/photo/123", Path("/tmp/not-used"))
+        responses = [
+            self.response(payload),
+            self.media_response("image/jpeg", b"still-a"),
+            self.media_response("video/mp4", b"motion-a"),
+            self.media_response("image/jpeg", b"still-b"),
+        ]
+        with tempfile.TemporaryDirectory() as tmp, patch(
+            "app.tiktok_live_photos.requests.get", side_effect=responses
+        ):
+            album = download_tiktok_live_photo_album(
+                "https://www.tiktok.com/@u/photo/123", Path(tmp)
+            )
+        self.assertEqual([kind for kind, _ in album], ["video", "photo"])
 
-    def test_rejects_untrusted_motion_host(self):
+    def test_rejects_motion_array_longer_than_image_array(self):
+        payload = {"code": 0, "data": {
+            "images": ["https://p16.tiktokcdn.com/a.jpeg"],
+            "live_images": [
+                "https://v19.tiktokcdn.com/a.mp4",
+                "https://v19.tiktokcdn.com/b.mp4",
+            ],
+        }}
+        with patch(
+            "app.tiktok_live_photos.requests.get",
+            return_value=self.response(payload),
+        ):
+            with self.assertRaisesRegex(TikTokLivePhotoError, "alignment mismatch"):
+                download_tiktok_live_photo_album(
+                    "https://www.tiktok.com/@u/photo/123", Path("/tmp/not-used")
+                )
+
+    def test_untrusted_motion_host_falls_back_to_still(self):
         payload = {"code": 0, "data": {
             "images": ["https://p16.tiktokcdn.com/a.jpeg"],
             "live_images": ["https://example.com/a.mp4"],
         }}
-        with tempfile.TemporaryDirectory() as tmp, \
-             patch("app.tiktok_live_photos.requests.get", side_effect=[self.response(payload), self.media_response("image/jpeg", b"jpg-one"), self.media_response("video/mp4", b"mp4-one"), self.media_response("image/jpeg", b"jpg-two"), self.media_response("image/jpeg", b"jpg-three"), self.media_response("video/mp4", b"mp4-three")]), \
-             patch("app.tiktok_live_photos.requests.get", return_value=self.media_response("image/jpeg", b"still")):
-            album = download_tiktok_live_photo_album("https://www.tiktok.com/@u/photo/123", Path(tmp))
-
+        with tempfile.TemporaryDirectory() as tmp, patch(
+            "app.tiktok_live_photos.requests.get",
+            side_effect=[
+                self.response(payload),
+                self.media_response("image/jpeg", b"still"),
+            ],
+        ):
+            album = download_tiktok_live_photo_album(
+                "https://www.tiktok.com/@u/photo/123", Path(tmp)
+            )
         self.assertEqual([kind for kind, _ in album], ["photo"])
-        self.assertEqual(album[0][1].name, "slide_001.jpg")
 
-    def test_rejects_non_mp4_motion_content(self):
+    def test_non_mp4_motion_response_falls_back_to_still(self):
         payload = {"code": 0, "data": {
             "images": ["https://p16.tiktokcdn.com/a.jpeg"],
             "live_images": ["https://v19.tiktokcdn.com/a.mp4"],
         }}
-        with tempfile.TemporaryDirectory() as tmp, \
-             patch("app.tiktok_live_photos.requests.get", side_effect=[self.response(payload), self.media_response("image/jpeg", b"jpg-one"), self.media_response("video/mp4", b"mp4-one"), self.media_response("image/jpeg", b"jpg-two"), self.media_response("image/jpeg", b"jpg-three"), self.media_response("video/mp4", b"mp4-three")]), \
-             patch("app.tiktok_live_photos.requests.get", side_effect=[
-                 self.media_response("image/jpeg", b"still"),
-                 self.media_response("text/html", b"error"),
-             ]):
-            album = download_tiktok_live_photo_album("https://www.tiktok.com/@u/photo/123", Path(tmp))
-
+        with tempfile.TemporaryDirectory() as tmp, patch(
+            "app.tiktok_live_photos.requests.get",
+            side_effect=[
+                self.response(payload),
+                self.media_response("image/jpeg", b"still"),
+                self.media_response("text/html", b"error"),
+            ],
+        ):
+            album = download_tiktok_live_photo_album(
+                "https://www.tiktok.com/@u/photo/123", Path(tmp)
+            )
         self.assertEqual([kind for kind, _ in album], ["photo"])
-        self.assertEqual(album[0][1].name, "slide_001.jpg")
 
-    def test_rejects_motion_clip_over_telegram_safe_limit(self):
+    def test_oversized_motion_clip_falls_back_to_still(self):
         payload = {"code": 0, "data": {
             "images": ["https://p16.tiktokcdn.com/a.jpeg"],
             "live_images": ["https://v19.tiktokcdn.com/a.mp4"],
         }}
-        with tempfile.TemporaryDirectory() as tmp, \
-             patch("app.tiktok_live_photos.MAX_LIVE_VIDEO_BYTES", 5), \
-             patch("app.tiktok_live_photos.requests.get", side_effect=[self.response(payload), self.media_response("image/jpeg", b"jpg-one"), self.media_response("video/mp4", b"mp4-one"), self.media_response("image/jpeg", b"jpg-two"), self.media_response("image/jpeg", b"jpg-three"), self.media_response("video/mp4", b"mp4-three")]), \
-             patch("app.tiktok_live_photos.requests.get", side_effect=[
-                 self.media_response("image/jpeg", b"still"),
-                 self.media_response("video/mp4", b"123456"),
-             ]):
-            album = download_tiktok_live_photo_album("https://www.tiktok.com/@u/photo/123", Path(tmp))
-
+        with tempfile.TemporaryDirectory() as tmp, patch(
+            "app.tiktok_live_photos.MAX_LIVE_VIDEO_BYTES", 5
+        ), patch(
+            "app.tiktok_live_photos.requests.get",
+            side_effect=[
+                self.response(payload),
+                self.media_response("image/jpeg", b"still"),
+                self.media_response("video/mp4", b"123456"),
+            ],
+        ):
+            album = download_tiktok_live_photo_album(
+                "https://www.tiktok.com/@u/photo/123", Path(tmp)
+            )
         self.assertEqual([kind for kind, _ in album], ["photo"])
-        self.assertEqual(album[0][1].name, "slide_001.jpg")
         self.assertFalse((Path(tmp) / "slide_001.mp4").exists())
 
 
